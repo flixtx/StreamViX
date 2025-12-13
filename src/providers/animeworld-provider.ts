@@ -13,7 +13,7 @@ const englishTitleCache = new Map<string, string>();
 // Helper to invoke python scraper with timeout & timing logs
 async function invokePython(args: string[], timeoutOverrideMs?: number): Promise<any> {
   const scriptPath = path.join(__dirname, 'animeworld_scraper.py');
-  const timeoutMsBase = parseInt(process.env.ANIMEWORLD_PY_TIMEOUT || '20000', 10); // default 20s
+  const timeoutMsBase = parseInt(process.env.ANIMEWORLD_PY_TIMEOUT || '60000', 10); // default 20s
   const timeoutMs = timeoutOverrideMs || timeoutMsBase;
   const start = Date.now();
   console.log('[AnimeWorld][PY] spawn', args.join(' '));
@@ -71,7 +71,7 @@ async function getEnglishTitleFromAnyId(id: string, type: 'imdb'|'tmdb'|'kitsu'|
     if (!tmdbKey) throw new Error('TMDB_API_KEY non configurata');
     const imdbIdOnly = id.split(':')[0];
     const { getTmdbIdFromImdbId } = await import('../extractor');
-    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey);
+    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey, 'tv');
     if (!tmdbId) throw new Error('TMDB ID non trovato per IMDB: ' + id);
     try {
       const haglundResp = await (await fetch(`https://arm.haglund.dev/api/v2/themoviedb?id=${tmdbId}&include=kitsu,myanimelist`)).json();
@@ -168,6 +168,15 @@ const exactMap: Record<string, string> = {
 
       "Ranma \u00bd (2024) Season 2": "Ranma \u00bd (2024) 2",
       "Ranma1/2 (2024) Season 2": "Ranma \u00bd (2024) 2",
+
+
+      "Link Click Season 2": "Link Click 2",
+
+
+
+      "K: SEVEN STORIES Lost Small World - Outside the Cage - ": "K: Seven Stories Movie 4 - Lost Small World - Ori no Mukou ni",
+
+
 
 
   // << AUTO-INSERT-EXACT >> (non rimuovere questo commento)
@@ -795,8 +804,15 @@ export class AnimeWorldProvider {
   private async fallbackFilterYearSearch(normalizedTitle: string, startDate: string, isMovie: boolean, episodeNumber: number | null, seasonNumber: number | null): Promise<{ streams: StreamForStremio[] }> {
     try {
       console.log('[AnimeWorld][FallbackFilter] Triggered with title=', normalizedTitle, 'date=', startDate);
-      // Emula lo "split(':')[0]" aggressivo del vecchio script: tronca al primo ':'
-      let query = normalizedTitle.includes(':') ? normalizedTitle.split(':')[0] : normalizedTitle;
+      // Emula lo "split(':')[0]" aggressivo del vecchio script: tronca al primo ':' o '?'
+      let query = normalizedTitle;
+      if (normalizedTitle.includes(':')) {
+        query = normalizedTitle.split(':')[0];
+      } else if (normalizedTitle.includes('?')) {
+        query = normalizedTitle.split('?')[0];
+      }
+      query = query.trim();
+      console.log('[AnimeWorld][FallbackFilter] Truncated query:', query);
       // Nel vecchio script poi spazio -> '+' prima della costruzione URL; lo scraper fa gia' replace interno (spazi -> +) prima di generare URL, passiamo quindi query semplice
       const results = await invokePython(['search','--query', query,'--date', startDate]);
       if (!Array.isArray(results) || !results.length) {

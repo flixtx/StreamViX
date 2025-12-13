@@ -7,20 +7,14 @@ import { getDomain } from '../utils/domains';
 import { checkIsAnimeById, applyUniversalAnimeTitleNormalization } from '../utils/animeGate';
 
 // Helper function to invoke the Python scraper
-async function invokePythonScraper(args: string[]): Promise<any> {
+// MFP config viene passata esplicitamente, con fallback a env vars per installazioni locali
+async function invokePythonScraper(args: string[], mfpConfig?: { mfpUrl?: string; mfpPassword?: string }): Promise<any> {
     const scriptPath = path.join(__dirname, 'animesaturn.py');
     const command = 'python3';
 
-    // Ottieni la config globale se disponibile
-    let mfpProxyUrl = '';
-    let mfpProxyPassword = '';
-    try {
-        // Cerca la config dall'ambiente
-        mfpProxyUrl = process.env.MFP_PROXY_URL || process.env.MFP_URL || '';
-        mfpProxyPassword = process.env.MFP_PROXY_PASSWORD || process.env.MFP_PSW || '';
-    } catch (e) {
-        console.error('Error getting MFP config:', e);
-    }
+    // MFP dalla config passata, fallback a env vars per installazioni locali
+    const mfpProxyUrl = mfpConfig?.mfpUrl || process.env.MFP_PROXY_URL || process.env.MFP_URL || '';
+    const mfpProxyPassword = mfpConfig?.mfpPassword || process.env.MFP_PROXY_PASSWORD || process.env.MFP_PSW || '';
 
     // Aggiungi gli argomenti proxy MFP se presenti
     if (mfpProxyUrl && mfpProxyPassword) {
@@ -69,7 +63,7 @@ async function getEnglishTitleFromAnyId(id: string, type: 'imdb'|'tmdb'|'kitsu'|
     if (!tmdbKey) throw new Error('TMDB_API_KEY non configurata');
     const imdbIdOnly = id.split(':')[0];
     const { getTmdbIdFromImdbId } = await import('../extractor');
-    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey);
+    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey, 'tv');
     if (!tmdbId) throw new Error('TMDB ID non trovato per IMDB: ' + id);
     try {
       const haglundResp = await (await fetch(`https://arm.haglund.dev/api/v2/themoviedb?id=${tmdbId}&include=kitsu,myanimelist`)).json();
@@ -216,6 +210,13 @@ function normalizeTitleForSearch(title: string): string {
 
     "Ranma \u00bd (2024) Season 2": "Ranma \u00bd (2024) 2",
     "Ranma1/2 (2024) Season 2": "Ranma \u00bd (2024) 2",
+
+        "Link Click Season 2": "Link Click 2",
+
+
+        "K: SEVEN STORIES Lost Small World - Outside the Cage - ": "K: Seven Stories Movie 4 - Lost Small World - Ori no Mukou ni",
+
+
 
     // << AUTO-INSERT-EXACT >> (non rimuovere questo commento)
   };
@@ -392,7 +393,7 @@ export class AnimeSaturnProvider {
         const tmdbKey = this.config.tmdbApiKey || process.env.TMDB_API_KEY || '';
         const imdbIdOnly = imdbId.split(':')[0];
         const { getTmdbIdFromImdbId } = await import('../extractor');
-        const tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey);
+        const tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey, 'tv');
         if (tmdbId) {
           const haglundResp = await (await fetch(`https://arm.haglund.dev/api/v2/themoviedb?id=${tmdbId}&include=kitsu,myanimelist`)).json();
           malId = haglundResp[0]?.myanimelist?.toString() || undefined;

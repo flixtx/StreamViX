@@ -19,7 +19,8 @@ export class GuardaSerieProvider {
   // Mappa fast-path: titolo TMDB esatto -> slug (senza base URL, con o senza prefisso serietv/)
   // Facile da aggiornare: aggiungere coppie nuove secondo necessità.
   private exactTitleMap: Record<string,string> = {
-    'MONSTERS: La storia di Lyle ed Erik Menendez': 'serietv/3278-monsters-la-storia-di-lyle-ed-erik-menendez-streaming-ita.html'
+    'MONSTERS: La storia di Lyle ed Erik Menendez': 'serietv/3278-monsters-la-storia-di-lyle-ed-erik-menendez-streaming-ita.html',
+    'Will & Grace': 'serietv/521-will-amp-grace-3-streaming-ita.html',
   };
 
   constructor(private config: GuardaSerieConfig) {
@@ -179,7 +180,7 @@ export class GuardaSerieProvider {
     if (kind === 'imdb') {
       const imdbOnly = id.split(':')[0];
       const mod = await import('../extractor');
-      const tmdbId = await mod.getTmdbIdFromImdbId(imdbOnly, key);
+      const tmdbId = await mod.getTmdbIdFromImdbId(imdbOnly, key, isMovie ? 'movie' : 'tv');
       if (!tmdbId) throw new Error('No TMDB');
       return this.fetchTmdbTitle(tmdbId, isMovie, key);
     }

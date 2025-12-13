@@ -67,12 +67,12 @@ def security_cookie(text: str):
 
 def fetch(url: str, cookies=None, allow_retry=True):
     cookies = cookies or {}
-    r = requests.get(url, headers=rand_headers(), cookies=cookies, timeout=25, verify=False)
+    r = requests.get(url, headers=rand_headers(), cookies=cookies, timeout=45, verify=False)
     if allow_retry and r.status_code == 202:
         ck = security_cookie(r.text)
         if ck:
             cookies.update(ck)
-            r = requests.get(url, headers=rand_headers(), cookies=cookies, timeout=25, verify=False)
+            r = requests.get(url, headers=rand_headers(), cookies=cookies, timeout=45, verify=False)
     return r, cookies
 
 def search(query: str, date: str = None) -> List[Dict[str, Any]]:
@@ -98,6 +98,7 @@ def search(query: str, date: str = None) -> List[Dict[str, Any]]:
     if year:
         urls.append(f"{BASE_URL}/filter?year={year}&sort=2&keyword={q_norm}")
     urls.append(f"{BASE_URL}/filter?sort=2&keyword={q_norm}")
+    
     for url in urls:
         try:
             print(f"[AW-DEBUG] Search URL: {url}", file=sys.stderr)
@@ -127,12 +128,13 @@ def search(query: str, date: str = None) -> List[Dict[str, Any]]:
                                     release_date = release_date.replace(ita, eng)
                                 release_date_object = datetime.datetime.strptime(release_date, "%d %B %Y")
                                 date_object = datetime.datetime.strptime(date, "%Y-%m-%d")
-                                release_date_fmt = release_date_object.strftime("%Y-%m-%d")
-                                # accetta +/- 1 giorno
-                                match_date = (release_date_fmt == date or
-                                              release_date_fmt == (date_object + datetime.timedelta(days=1)).strftime("%Y-%m-%d") or
-                                              release_date_fmt == (date_object - datetime.timedelta(days=1)).strftime("%Y-%m-%d"))
-                                print(f"[AW-DEBUG] {name} release: {release_date_fmt} vs {date} -> {match_date}", file=sys.stderr)
+                                # Strategia: prima prova anno+mese, poi solo anno
+                                same_year_month = (release_date_object.year == date_object.year and 
+                                                   release_date_object.month == date_object.month)
+                                same_year_only = (release_date_object.year == date_object.year)
+                                match_date = same_year_month or same_year_only
+                                match_type = "year+month" if same_year_month else ("year-only" if same_year_only else "no-match")
+                                print(f"[AW-DEBUG] {name} release: {release_date_object.strftime('%Y-%m-%d')} vs {date} -> {match_type} ({match_date})", file=sys.stderr)
                     except Exception as e:
                         print(f"[AW-DEBUG] errore data: {e}", file=sys.stderr)
                 if not match_date:
@@ -191,7 +193,7 @@ def get_mp4_from_page(url: str, cookies=None) -> Optional[str]:
     if a_tag and a_tag.get('href'):
         test = a_tag['href']
         try:
-            h = requests.head(test, timeout=15, verify=False)
+            h = requests.head(test, timeout=45, verify=False)
             if h.status_code == 404:
                 return None
         except Exception:

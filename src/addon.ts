@@ -11,7 +11,7 @@ import { KitsuProvider } from './providers/kitsu';
 import { formatMediaFlowUrl } from './utils/mediaflow';
 import { mergeDynamic, loadDynamicChannels, purgeOldDynamicEvents, invalidateDynamicChannels, getDynamicFilePath, getDynamicFileStats } from './utils/dynamicChannels';
 // --- Lightweight declarations to avoid TS complaints if @types/node non installati ---
-// (Non sostituiscono l'uso consigliato di @types/node, ma evitano errori bloccanti.)
+// (Non sostituiscono l'uso consigliato di @types/node, ma evitano errori bloccanti.) 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const __dirname: string;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,9 +31,18 @@ import { fetchPage } from './providers/flaresolverr';
 // Live gdplayer runtime resolver (for tagging)
 import { resolveGdplayerForChannel, inferGdplayerSlug } from './extractors/gdplayerRuntime';
 // Amstaff updater
-import { startAmstaffScheduler } from './utils/amstaffUpdater';
+import { startAmstaffScheduler, updateAmstaffChannels } from './utils/amstaffUpdater';
 // RM updater (MPD2)
-import { startRmScheduler } from './utils/rmUpdater';
+import { startRmScheduler, updateRmChannels } from './utils/rmUpdater';
+
+// ThisNot updater
+// ThisNot updater
+import { startThisNotUpdater, updateThisNotChannels } from './utils/thisnotChannels';
+import { startMpdzScheduler, updateMpdzChannels } from './utils/mpdzUpdater';
+import { startMpdxScheduler, updateMpdxChannels } from './utils/mpdxUpdater';
+import { startZEventiScheduler, updateZEventiChannels } from './utils/zEventiUpdater';
+import { getGuardoserieStreams } from './providers/guardoserie';
+import { getGuardaflixStreams } from './providers/guardaflix';
 
 // ================= TYPES & INTERFACES =================
 interface AddonConfig {
@@ -45,40 +54,45 @@ interface AddonConfig {
     animesaturnEnabled?: boolean;
     animeworldEnabled?: boolean;
     guardaserieEnabled?: boolean;
+    guardoserieEnabled?: boolean;
+    guardaflixEnabled?: boolean;
     guardahdEnabled?: boolean;
     eurostreamingEnabled?: boolean;
+    loonexEnabled?: boolean;
+    toonitaliaEnabled?: boolean;
     disableLiveTv?: boolean;
     disableVixsrc?: boolean;
     tvtapProxyEnabled?: boolean;
+    vavooNoMfpEnabled?: boolean;
 }
 
-function debugLog(...args: any[]) { try { console.log('[DEBUG]', ...args); } catch {} }
+function debugLog(...args: any[]) { try { console.log('[DEBUG]', ...args); } catch { } }
 
 const VAVOO_DEBUG: boolean = (() => {
     try {
         const env = (process && process.env) ? process.env : {} as any;
         const norm = (v?: string) => (v || '').toString().trim().toLowerCase();
         const v1 = norm(env.VAVOO_DEBUG); const v2 = norm(env.DEBUG_VAVOO);
-        if (v1) return !(v1==='0'||v1==='false'||v1==='off');
-        if (v2) return !(v2==='0'||v2==='false'||v2==='off');
+        if (v1) return !(v1 === '0' || v1 === 'false' || v1 === 'off');
+        if (v2) return !(v2 === '0' || v2 === 'false' || v2 === 'off');
         return true;
     } catch { return true; }
 })();
-function vdbg(...args: any[]) { if (!VAVOO_DEBUG) return; try { console.log('[VAVOO-DEBUG]', ...args); } catch {} }
+function vdbg(...args: any[]) { if (!VAVOO_DEBUG) return; try { console.log('[VAVOO-DEBUG]', ...args); } catch { } }
 
 const VAVOO_FORCE_SERVER_IP: boolean = (() => {
     try {
         const env = (process && process.env) ? process.env : {} as any;
         const norm = (v?: string) => (v || '').toString().trim().toLowerCase();
         const v1 = norm(env.VAVOO_FORCE_SERVER_IP); const v2 = norm(env.VAVOO_USE_SERVER_IP);
-        if (v1) return !(v1==='0'||v1==='false'||v1==='off');
-        if (v2) return !(v2==='0'||v2==='false'||v2==='off');
+        if (v1) return !(v1 === '0' || v1 === 'false' || v1 === 'off');
+        if (v2) return !(v2 === '0' || v2 === 'false' || v2 === 'off');
         return true;
     } catch { return true; }
 })();
-const VAVOO_SET_IPLOCATION_ONLY: boolean = (() => { try { const v = (process?.env?.VAVOO_SET_IPLOCATION_ONLY||'').toLowerCase(); if(!v) return true; return !(v==='0'||v==='false'||v==='off'); } catch { return false; }})();
-const VAVOO_LOG_SIG_FULL: boolean = (() => { try { const v = (process?.env?.VAVOO_LOG_SIG_FULL||'').toLowerCase(); if(['0','false','off'].includes(v)) return false; if(['1','true','on'].includes(v)) return true; return true; } catch { return true; }})();
-function maskSig(sig: string, keepStart=12, keepEnd=6): string { try { if(!sig) return ''; const len=sig.length; const head=sig.slice(0,Math.min(keepStart,len)); const tail=len>keepStart?sig.slice(Math.max(len-keepEnd,keepStart)):''; const hidden=Math.max(0,len-head.length-tail.length); const mask= hidden>0? '*'.repeat(Math.min(hidden,32)) + (hidden>32?`(+${hidden-32})`:''):''; return `${head}${mask}${tail}`;} catch {return '';} }
+const VAVOO_SET_IPLOCATION_ONLY: boolean = (() => { try { const v = (process?.env?.VAVOO_SET_IPLOCATION_ONLY || '').toLowerCase(); if (!v) return true; return !(v === '0' || v === 'false' || v === 'off'); } catch { return false; } })();
+const VAVOO_LOG_SIG_FULL: boolean = (() => { try { const v = (process?.env?.VAVOO_LOG_SIG_FULL || '').toLowerCase(); if (['0', 'false', 'off'].includes(v)) return false; if (['1', 'true', 'on'].includes(v)) return true; return true; } catch { return true; } })();
+function maskSig(sig: string, keepStart = 12, keepEnd = 6): string { try { if (!sig) return ''; const len = sig.length; const head = sig.slice(0, Math.min(keepStart, len)); const tail = len > keepStart ? sig.slice(Math.max(len - keepEnd, keepStart)) : ''; const hidden = Math.max(0, len - head.length - tail.length); const mask = hidden > 0 ? '*'.repeat(Math.min(hidden, 32)) + (hidden > 32 ? `(+${hidden - 32})` : '') : ''; return `${head}${mask}${tail}`; } catch { return ''; } }
 
 function getClientIpFromReq(req: any): string | null {
     try {
@@ -168,7 +182,7 @@ function getClientIpFromReq(req: any): string | null {
             vdbg('IP pick via remoteAddress/ip (fallback)', { v });
             return v.replace(/^\[|\]$/g, '');
         }
-    } catch (e) { try { vdbg('IP detect error', String(e)); } catch {} }
+    } catch (e) { try { vdbg('IP detect error', String(e)); } catch { } }
     return null;
 }
 
@@ -191,7 +205,7 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
             theme: 'dark',
             metadata: {
                 device: { type: 'Handset', brand: 'google', model: 'Pixel', name: 'sdk_gphone64_arm64', uniqueId: 'd10e5d99ab665233' },
-                os: { name: 'android', version: '13', abis: ['arm64-v8a','armeabi-v7a','armeabi'], host: 'android' },
+                os: { name: 'android', version: '13', abis: ['arm64-v8a', 'armeabi-v7a', 'armeabi'], host: 'android' },
                 app: { platform: 'android', version: '3.1.21', buildId: '289515000', engine: 'hbc85', signatures: ['6e8a975e3cbf07d5de823a760d4c2547f86c1403105020adee5de67ac510999e'], installer: 'app.revanced.manager.flutter' },
                 version: { package: 'tv.vavoo.app', binary: '3.1.21', js: '3.1.21' }
             },
@@ -207,7 +221,7 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
             firstAppStart: Date.now(),
             lastAppStart: Date.now(),
             adblockEnabled: true,
-            proxy: { supported: ['ss','openvpn'], engine: 'ss', ssVersion: 1, enabled: true, autoServer: true, id: 'de-fra' },
+            proxy: { supported: ['ss', 'openvpn'], engine: 'ss', ssVersion: 1, enabled: true, autoServer: true, id: 'de-fra' },
             iap: { supported: false }
         } as any;
         const pingHeaders: Record<string, string> = { 'user-agent': 'okhttp/4.11.0', 'accept': 'application/json', 'content-type': 'application/json; charset=utf-8', 'accept-encoding': 'gzip' };
@@ -240,7 +254,7 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
         vdbg('Ping response', { status: pingRes.status, ok: pingRes.ok, tookMs: Date.now() - startedAt });
         if (!pingRes.ok) {
             let text = '';
-            try { text = await pingRes.text(); } catch {}
+            try { text = await pingRes.text(); } catch { }
             vdbg('Ping NOT OK, body snippet:', text.substring(0, 300));
             return null;
         }
@@ -259,10 +273,10 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
             const decoded = Buffer.from(String(addonSig), 'base64').toString('utf8');
             vdbg('addonSig base64 decoded (truncated):', decoded.substring(0, 500));
             let sigObj: any = null;
-            try { sigObj = JSON.parse(decoded); } catch {}
+            try { sigObj = JSON.parse(decoded); } catch { }
             if (sigObj) {
                 let dataObj: any = {};
-                try { dataObj = JSON.parse(sigObj?.data || '{}'); } catch {}
+                try { dataObj = JSON.parse(sigObj?.data || '{}'); } catch { }
                 const currentIps = Array.isArray(dataObj.ips) ? dataObj.ips : [];
                 vdbg('addonSig.data ips (before):', currentIps);
                 if (clientIp) {
@@ -283,7 +297,7 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
                     vdbg('No client IP observed, addonSig not rewritten');
                 }
             }
-        } catch {}
+        } catch { }
 
         const controller2 = new AbortController();
         const to2 = setTimeout(() => {
@@ -320,7 +334,7 @@ async function resolveVavooCleanUrl(vavooPlayUrl: string, clientIp: string | nul
         vdbg('Resolve response', { status: resolveRes.status, ok: resolveRes.ok, tookMs: Date.now() - startedAt });
         if (!resolveRes.ok) {
             let text = '';
-            try { text = await resolveRes.text(); } catch {}
+            try { text = await resolveRes.text(); } catch { }
             vdbg('Resolve NOT OK, body snippet:', text.substring(0, 300));
             return null;
         }
@@ -362,18 +376,21 @@ const dynamicStreamCache = new Map<string, { finalUrl: string; ts: number }>();
 const DYNAMIC_STREAM_TTL_MS = 5 * 60 * 1000; // 5 minuti
 
 async function resolveDynamicEventUrl(dUrl: string, providerTitle: string, mfpUrl?: string, mfpPsw?: string): Promise<{ url: string; title: string }> {
-    if (!mfpUrl || !mfpPsw) return { url: dUrl, title: providerTitle };
-    const cacheKey = `${mfpUrl}|${mfpPsw}|${dUrl}`;
+    if (!mfpUrl) return { url: dUrl, title: providerTitle };
+    // Normalizza mfpUrl per evitare doppio slash
+    const mfpBase = mfpUrl.replace(/\/+$/, '');
+    const cacheKey = `${mfpBase}|${mfpPsw || ''}|${dUrl}`;
     const now = Date.now();
     const cached = dynamicStreamCache.get(cacheKey);
     if (cached && (now - cached.ts) < DYNAMIC_STREAM_TTL_MS)
         return { url: cached.finalUrl, title: providerTitle };
-    const extractorUrl = `${mfpUrl}/extractor/video?host=DLHD&redirect_stream=false&api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(dUrl)}`;
+    const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+    const extractorUrl = `${mfpBase}/extractor/video?host=DLHD&redirect_stream=false${passwordParam}&d=${encodeURIComponent(dUrl)}`;
     try {
         const res = await fetch(extractorUrl);
         if (res.ok) {
             const data = await res.json();
-            let finalUrl = data.mediaflow_proxy_url || `${mfpUrl}/proxy/hls/manifest.m3u8`;
+            let finalUrl = data.mediaflow_proxy_url || `${mfpBase}/proxy/hls/manifest.m3u8`;
             if (data.query_params) {
                 const params = new URLSearchParams();
                 for (const [k, v] of Object.entries(data.query_params)) {
@@ -473,8 +490,11 @@ function getStreamPriority(stream: { url: string; title: string }): number {
     // 4.5. staticUrlMpd2 (🎬MPD2 - seconda sorgente RM)
     if (/\[🎬MPD2\]/i.test(title)) return 4.5;
 
-    // 5. [P🐽D]
-    if (/\[P🐽D\]/i.test(title)) return 5;
+    // 4.6. staticUrlMpdz (🎬MPDz -  source)
+    if (/\[🎬MPDz\]/i.test(title)) return 4.6;
+
+    // 4.7. staticUrlMpdx (🎬MPDx -  source)
+    if (/\[🎬MPDx\]/i.test(title)) return 4.7;
 
     // 6. Daddy con 🇮🇹 (estratti, wrappati MFP o diretti ma NON 🔄 e NON [Player Esterno])
     if (/^🇮🇹(?!🔄)/.test(title) && !/\[Player Esterno\]/i.test(title) && /dlhd\.dad|mfp.*dlhd/i.test(url)) return 6;
@@ -485,17 +505,8 @@ function getStreamPriority(stream: { url: string; title: string }): number {
     // 8. GDplayer
     if (/\[🌐Gd\]|\bGd\b|gdplayer/i.test(title)) return 8;
 
-    // 9. RBTV
-    if (/\[?(RB|RBTV|rb77)\]?/i.test(title)) return 9;
-
     // 10. SPON
     if (/\[?SPON\]?/i.test(title)) return 10;
-
-    // 11. SPSO
-    if (/\[?SPSO\]?/i.test(title)) return 11;
-
-    // 12. STRD
-    if (/\[?STRD\]?/i.test(title) || /\[Strd\]/i.test(title)) return 12;
 
     // 13. Altri daddy FAST dynamic (estratti ma non italiani, non leftover)
     if (!/\[Player Esterno\]/i.test(title) && /dlhd\.dad|mfp.*dlhd/i.test(url)) return 13;
@@ -544,27 +555,27 @@ function extractDlhdIdFromCf(u: string): string | null {
         if (qIndex === -1) return null;
         const query = u.substring(qIndex + 1);
         const params = new URLSearchParams(query);
-        
+
         // Nuovo formato: /dlhd.m3u8?src=https://dlhd.dad/watch.php?id=123
         if (params.has('src')) {
             const src = decodeURIComponent(params.get('src') || '');
             const m = src.match(/watch\.php\?id=(\d+)/i);
             if (m) return m[1];
         }
-        
+
         // Caso corto: ...manifest.m3u8?id=123
         if (params.has('id')) {
             const id = params.get('id') || '';
             return /^\d+$/.test(id) ? id : null;
         }
-        
+
         // Caso legacy: ...manifest.m3u8?url=https://dlhd.dad/watch.php?id=123
         if (params.has('url')) {
             const inner = params.get('url') || '';
             const m = inner.match(/watch\.php\?id=(\d+)/i);
             if (m) return m[1];
         }
-    } catch {}
+    } catch { }
     // Fallback regex unica
     const m2 = u.match(/manifest\.m3u8\?(?:[^\s]*?id=|[^\s]*?watch\.php\?id=)(\d+)/i);
     return m2 ? m2[1] : null;
@@ -575,7 +586,7 @@ function buildCfProxyFromId(id: string, addonBaseUrl?: string): string {
     if (addonBaseUrl) {
         const daddyUrl = `https://dlhd.dad/watch.php?id=${id}`;
         const encodedSrc = encodeURIComponent(daddyUrl);
-        return `${addonBaseUrl.replace(/\/$/,'')}/dlhd.m3u8?src=${encodedSrc}`;
+        return `${addonBaseUrl.replace(/\/$/, '')}/dlhd.m3u8?src=${encodedSrc}`;
     }
     // Fallback al formato legacy
     return `https://proxy.stremio.dpdns.org/manifest.m3u8?id=${id}`;
@@ -587,7 +598,7 @@ function isCfDlhdProxy(u: string): boolean { return extractDlhdIdFromCf(u) !== n
 // ================= MANIFEST BASE (restored) =================
 const baseManifest: Manifest = {
     id: "org.stremio.vixcloud",
-    version: "8.5.24",
+    version: "9.4.23",
     name: "StreamViX | Elfhosted",
     description: "StreamViX addon con VixSRC, Guardaserie, Altadefinizione, AnimeUnity, AnimeSaturn, AnimeWorld, Eurostreaming, TV ed Eventi Live",
     background: "https://raw.githubusercontent.com/qwertyuiop8899/StreamViX/refs/heads/main/public/backround.png",
@@ -612,7 +623,24 @@ const baseManifest: Manifest = {
                         "News",
                         "Generali",
                         "Bambini",
-                        "Pluto",
+                        "Pluto"
+                    ]
+                },
+                { name: "genre", isRequired: false },
+                { name: "search", isRequired: false }
+            ]
+        },
+        {
+            id: "streamvix_live",
+            type: "tv",
+            name: "StreamViX Live",
+            extra: [
+                {
+                    name: "genre",
+                    options: [
+                        "X-Eventi",
+                        "Z-Eventi",
+                        "THISNOT",
                         "Serie A",
                         "Serie B",
                         "Serie C",
@@ -632,7 +660,8 @@ const baseManifest: Manifest = {
                         "Boxing",
                         "Darts",
                         "Baseball",
-                        "NFL"
+                        "NFL",
+                        "PPV"
                     ]
                 },
                 { name: "genre", isRequired: false },
@@ -644,24 +673,33 @@ const baseManifest: Manifest = {
     behaviorHints: { configurable: true },
     config: [
         { key: "tmdbApiKey", title: "TMDB API Key", type: "text" },
-        { key: "mediaFlowProxyUrl", title: "MediaFlow Proxy URL", type: "text" },
-        { key: "mediaFlowProxyPassword", title: "MediaFlow Proxy Password", type: "text" },
+        { key: "mediaFlowProxyUrl", title: "☂️ Proxy URL", type: "text" },
+        { key: "mediaFlowProxyPassword", title: "Proxy Password (opzionale)", type: "text" },
         // { key: "enableMpd", title: "Enable MPD Streams", type: "checkbox" },
-    { key: "disableVixsrc", title: "Disable VixSrc", type: "checkbox" },
-    { key: "disableLiveTv", title: "Live TV 📺 [Molti canali hanno bisogno di MFP]", type: "checkbox", default: false },
-    { key: "animeunityEnabled", title: "Enable AnimeUnity", type: "checkbox" },
-    { key: "animesaturnEnabled", title: "Enable AnimeSaturn", type: "checkbox" },
-    { key: "animeworldEnabled", title: "Enable AnimeWorld", type: "checkbox" },
-    { key: "guardaserieEnabled", title: "Enable GuardaSerie", type: "checkbox" },
-    { key: "guardahdEnabled", title: "Enable GuardaHD", type: "checkbox" },
-    { key: "eurostreamingEnabled", title: "Eurostreaming", type: "checkbox" },
-    { key: "cb01Enabled", title: "Enable CB01 Mixdrop", type: "checkbox" },
-    { key: "streamingwatchEnabled", title: "StreamingWatch 🔓", type: "checkbox" },
-    { key: "tvtapProxyEnabled", title: "TvTap NO MFP 🔓", type: "checkbox", default: true },
-    { key: "vavooNoMfpEnabled", title: "Vavoo NO MFP 🔓", type: "checkbox", default: true },
-    // UI helper toggles (not used directly server-side but drive dynamic form logic)
-    { key: "personalTmdbKey", title: "TMDB API KEY Personale", type: "checkbox" },
-    { key: "mediaflowMaster", title: "MediaflowProxy", type: "checkbox", default: false },
+        { key: "disableVixsrc", title: "Disable VixSrc", type: "checkbox" },
+        { key: "vixDirect", title: "VixSrc Direct mode", type: "checkbox" },
+        { key: "vixDirectFhd", title: "VixSrc Direct FHD mode", type: "checkbox" },
+        { key: "vixProxy", title: "VixSrc Proxy mode", type: "checkbox" },
+        { key: "vixProxyFhd", title: "VixSrc Proxy FHD mode", type: "checkbox" },
+        { key: "disableLiveTv", title: "Live TV 📺 [Molti canali hanno bisogno di MFP]", type: "checkbox", default: false },
+        { key: "animeunityEnabled", title: "Enable AnimeUnity", type: "checkbox" },
+        { key: "animeunityAuto", title: "AnimeUnity AUTO mode", type: "checkbox" },
+        { key: "animeunityFhd", title: "AnimeUnity FHD mode", type: "checkbox" },
+        { key: "animesaturnEnabled", title: "Enable AnimeSaturn", type: "checkbox" },
+        { key: "animeworldEnabled", title: "Enable AnimeWorld", type: "checkbox" },
+        { key: "guardaserieEnabled", title: "Enable GuardaSerie", type: "checkbox" },
+        { key: "guardoserieEnabled", title: "Enable Guardoserie", type: "checkbox" },
+        { key: "guardaflixEnabled", title: "Enable Guardaflix", type: "checkbox" },
+        { key: "guardahdEnabled", title: "Enable GuardaHD", type: "checkbox" },
+        { key: "eurostreamingEnabled", title: "Eurostreaming", type: "checkbox" },
+        { key: "loonexEnabled", title: "Enable Loonex", type: "checkbox" },
+        { key: "toonitaliaEnabled", title: "Enable ToonItalia", type: "checkbox" },
+        { key: "cb01Enabled", title: "Enable CB01 Mixdrop", type: "checkbox" },
+        // { key: "tvtapProxyEnabled", title: "TvTap NO MFP 🔓", type: "checkbox", default: true }, // TVTAP RIMOSSO
+        { key: "vavooNoMfpEnabled", title: "Vavoo NO MFP 🔓", type: "checkbox", default: true },
+        // UI helper toggles (not used directly server-side but drive dynamic form logic)
+        { key: "personalTmdbKey", title: "TMDB API KEY Personale", type: "checkbox" },
+        { key: "mediaflowMaster", title: "MediaflowProxy", type: "checkbox", default: false },
 
     ]
 };
@@ -837,7 +875,7 @@ function _loadStaticChannelsIfChanged(force = false) {
         // Count pdUrlF present
         let pdCount = 0; let total = parsed.length;
         for (const c of parsed) if (c && c.pdUrlF) pdCount++;
-        console.log(`[TV][RELOAD] staticBaseChannels reloaded: total=${total} pdUrlF=${pdCount} mtime=${new Date(mtime).toISOString()} hash=${h.slice(0,12)}`);
+        console.log(`[TV][RELOAD] staticBaseChannels reloaded: total=${total} pdUrlF=${pdCount} mtime=${new Date(mtime).toISOString()} hash=${h.slice(0, 12)}`);
     } catch (e) {
         console.warn('[TV][RELOAD] errore reload static tv_channels:', (e as any)?.message || e);
     }
@@ -858,11 +896,11 @@ function _loadStaticChannelsIfChanged(force = false) {
                 const raw = fs.readFileSync(p);
                 const h = _computeHash(raw);
                 if (st.mtimeMs !== lastDynMtime || h !== lastDynHash) {
-                    const oldShort = lastDynHash.slice(0,8);
+                    const oldShort = lastDynHash.slice(0, 8);
                     lastDynMtime = st.mtimeMs; lastDynHash = h;
                     invalidateDynamicChannels();
                     const dyn = loadDynamicChannels(true);
-                    console.log(`[WATCH][DYN] reload (changed) oldHash=${oldShort} newHash=${h.slice(0,8)} count=${dyn.length}`);
+                    console.log(`[WATCH][DYN] reload (changed) oldHash=${oldShort} newHash=${h.slice(0, 8)} count=${dyn.length}`);
                 }
             } catch (e) {
                 console.warn('[WATCH][DYN] errore controllo dynamic:', (e as any)?.message || e);
@@ -886,253 +924,65 @@ function _loadStaticChannelsIfChanged(force = false) {
 })();
 
 // (RIMOSSO) watcher dinamico separato (ora unificato sopra)
-// === STREAMED playlist enrichment (spawns external python script) ===
+// === STREAMED playlist enrichment (RIMOSSO) ===
+// === RBTV (RB77) playlist enrichment (RIMOSSO) ===
+// === SPSO (SportsOnline) playlist enrichment (RIMOSSO) ===
+
+// === PPV playlist enrichment ===
 (() => {
     try {
-        // Auto-enable STREAMED enrichment if the user hasn't explicitly set STREAMED_ENABLE.
-        // Rationale: we want the enrichment active by default (was originally introduced for a test phase).
-        let enableRaw = (process.env.STREAMED_ENABLE || '0').toString().toLowerCase();
-        if (!enableRaw) {
-            // default ON in absence of explicit value so that the enrichment always runs unless explicitly disabled
-            enableRaw = '1';
-            process.env.STREAMED_ENABLE = '1';
-            console.log('[STREAMED][INIT] abilitazione automatica');
-        }
-        const enable = enableRaw;
-        if (!['1','true','on','yes'].includes(enable)) return;
-    const intervalMs = Math.max(30000, parseInt(process.env.STREAMED_POLL_INTERVAL_MS || '480000', 10)); // default 480s (8m)
+        // Always enable PPV unless explicitly disabled
+        let enableRaw = (process.env.PPV_ENABLE || '1').toString().toLowerCase();
+        if (!['1', 'true', 'on', 'yes'].includes(enableRaw)) return;
+
         const pythonBin = process.env.PYTHON_BIN || 'python3';
-        const scriptPath = path.join(__dirname, '..', 'streamed_channels.py');
-        if (!fs.existsSync(scriptPath)) { console.log('[STREAMED][INIT] script non trovato', scriptPath); return; }
+        const scriptPath = path.join(__dirname, '..', 'ppv_streams.py');
+        if (!fs.existsSync(scriptPath)) { console.log('[PPV][INIT] script non trovato', scriptPath); return; }
+
+        // const intervalMs = Math.max(60000, parseInt(process.env.PPV_POLL_INTERVAL_MS || '300000', 10)); // default 5m
+
         function runOnce(tag: string) {
             const env: any = { ...process.env };
-            // Propaga percorso dynamic se usato
-            try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
             const t0 = Date.now();
             const child = spawn(pythonBin, [scriptPath], { env });
             let out = ''; let err = '';
-            child.stdout.on('data', d => { out += d.toString(); });
-            child.stderr.on('data', d => { err += d.toString(); });
+            child.stdout.on('data', d => out += d.toString());
+            child.stderr.on('data', d => err += d.toString());
             child.on('close', code => {
                 const ms = Date.now() - t0;
-                if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[STREAMED][OUT]', l));
-                if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[STREAMED][ERR]', l));
-                console.log(`[STREAMED][RUN] done code=${code} ms=${ms}`);
+                if (out.trim()) out.split(/\r?\n/).forEach(l => console.log('[PPV][OUT]', l));
+                if (err.trim()) err.split(/\r?\n/).forEach(l => console.warn('[PPV][ERR]', l));
+                console.log(`[PPV][RUN] done code=${code} ms=${ms}`);
             });
         }
-        // Force headers + force mode for initial test run (Bologna vs Genoa) unless user explicitly disables
-        const initialEnv = { ...process.env };
-        if (!initialEnv.STREAMED_FORCE) initialEnv.STREAMED_FORCE = '1';
-        if (!initialEnv.STREAMED_PROPAGATE_HEADERS) initialEnv.STREAMED_PROPAGATE_HEADERS = '1';
-        // Kick an immediate run (slight delay to allow Live.py generation) with forced env
-        setTimeout(()=>{
-            const t0 = Date.now();
-            try { initialEnv.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-            const child = spawn(pythonBin, [scriptPath], { env: initialEnv });
-            let out=''; let err='';
-            child.stdout.on('data', (d: any)=> out+=d.toString());
-            child.stderr.on('data', (d: any)=> err+=d.toString());
-            child.on('close', (code: any) => {
-                const ms = Date.now() - t0;
-                if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[STREAMED][OUT][INIT]', l));
-                if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[STREAMED][ERR][INIT]', l));
-                console.log(`[STREAMED][RUN][INIT] done code=${code} ms=${ms}`);
-            });
-        }, 5000);
-        setInterval(()=>runOnce('loop'), intervalMs);
-        console.log('[STREAMED][INIT] abilitato poll ogni', intervalMs,'ms');
+
+        // Initial run with delay
+        setTimeout(() => {
+            console.log('[PPV][INIT] Starting initial run...');
+            runOnce('init');
+        }, 10000);
+
+        // Scheduler: Run every 5 minutes to keep LIVE/NOT LIVE status fresh
+        // Since it only parses a remote M3U, it's lightweight.
+        const PPV_INTERVAL = 5 * 60 * 1000; // 5 minutes
+        setInterval(() => {
+            console.log(`[PPV][SCHEDULER] Triggering scheduled update...`);
+            runOnce('scheduled');
+        }, PPV_INTERVAL);
+
+        console.log(`[PPV][INIT] Scheduler attivo: aggiornamento ogni ${PPV_INTERVAL / 1000}s`);
     } catch (e) {
-        console.log('[STREAMED][INIT][ERR]', (e as any)?.message || e);
+        console.log('[PPV][INIT] failed', e);
     }
 })();
 
-// === RBTV (RB77) playlist enrichment ===
-(() => {
-    try {
-        let enableRaw = (process.env.RBTV_ENABLE || '0').toString().toLowerCase();
-        if (!enableRaw) {
-            enableRaw = '1';
-            process.env.RBTV_ENABLE = '1';
-            console.log('[RBTV][INIT] abilitazione automatica');
-        }
-        if (!['1','true','on','yes'].includes(enableRaw)) return;
-        const pythonBin = process.env.PYTHON_BIN || 'python3';
-        const scriptPath = path.join(__dirname, '..', 'rbtv_streams.py');
-        if (!fs.existsSync(scriptPath)) { console.log('[RBTV][INIT] script non trovato', scriptPath); return; }
-    const intervalMs = Math.max(60000, parseInt(process.env.RBTV_POLL_INTERVAL_MS || '480000', 10)); // default 480s (8m)
-        function runOnce(tag: string) {
-            const env: any = { ...process.env };
-            try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-            const t0 = Date.now();
-            const child = spawn(pythonBin, [scriptPath], { env });
-            let out=''; let err='';
-            child.stdout.on('data', d=> out+=d.toString());
-            child.stderr.on('data', d=> err+=d.toString());
-            child.on('close', code => {
-                const ms = Date.now() - t0;
-                if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[RBTV][OUT]', l));
-                if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[RBTV][ERR]', l));
-                console.log(`[RBTV][RUN] done code=${code} ms=${ms}`);
-            });
-        }
-        // Primo giro forzato (RBTV_FORCE=1) ritardato per lasciare generare Live.py, simile a STREAMED_FORCE
-        setTimeout(()=> {
-            try {
-                const initialEnv: any = { ...process.env };
-                if (!initialEnv.RBTV_FORCE) initialEnv.RBTV_FORCE = '1'; // forza discovery iniziale
-                try { initialEnv.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-                const t0 = Date.now();
-                const child = spawn(pythonBin, [scriptPath], { env: initialEnv });
-                let out=''; let err='';
-                child.stdout.on('data', (d: any)=> out+=d.toString());
-                child.stderr.on('data', (d: any)=> err+=d.toString());
-                child.on('close', (code: any) => {
-                    const ms = Date.now() - t0;
-                    if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[RBTV][OUT][INIT]', l));
-                    if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[RBTV][ERR][INIT]', l));
-                    console.log(`[RBTV][RUN][INIT] done code=${code} ms=${ms}`);
-                });
-            } catch (e) {
-                console.log('[RBTV][INIT][FORCE][ERR]', (e as any)?.message || e);
-            }
-        }, 7000);
-        setInterval(()=> runOnce('loop'), intervalMs);
-        console.log('[RBTV][INIT] poll ogni', intervalMs, 'ms');
-    } catch (e) {
-        console.log('[RBTV][INIT][ERR]', (e as any)?.message || e);
-    }
-})();
 
-// === SPSO (SportsOnline) playlist enrichment ===
-(() => {
-    try {
-        let enableRaw = (process.env.SPSO_ENABLE || '0').toString().toLowerCase();
-        if (!enableRaw) {
-            enableRaw = '1';
-            process.env.SPSO_ENABLE = '1';
-            console.log('[SPSO][INIT] abilitazione automatica');
-        }
-        if (!['1','true','on','yes'].includes(enableRaw)) return;
-        const pythonBin = process.env.PYTHON_BIN || 'python3';
-        const scriptPath = path.join(__dirname, '..', 'spso_streams.py');
-        if (!fs.existsSync(scriptPath)) { console.log('[SPSO][INIT] script non trovato', scriptPath); return; }
-    const intervalMs = Math.max(60000, parseInt(process.env.SPSO_POLL_INTERVAL_MS || '480000', 10)); // default 480s (8m)
-        function runOnce(tag: string) {
-            const env: any = { ...process.env };
-            try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-            const t0 = Date.now();
-            const child = spawn(pythonBin, [scriptPath], { env });
-            let out=''; let err='';
-            child.stdout.on('data', d=> out+=d.toString());
-            child.stderr.on('data', d=> err+=d.toString());
-            child.on('close', code => {
-                const ms = Date.now() - t0;
-                if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[SPSO][OUT]', l));
-                if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[SPSO][ERR]', l));
-                console.log(`[SPSO][RUN] done code=${code} ms=${ms}`);
-            });
-        }
-        setTimeout(()=> {
-            try {
-                const initialEnv: any = { ...process.env };
-                if (!initialEnv.SPSO_FORCE) initialEnv.SPSO_FORCE = '1';
-                try { initialEnv.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-                const t0 = Date.now();
-                const child = spawn(pythonBin, [scriptPath], { env: initialEnv });
-                let out=''; let err='';
-                child.stdout.on('data', d=> out+=d.toString());
-                child.stderr.on('data', d=> err+=d.toString());
-                child.on('close', code => {
-                    const ms = Date.now() - t0;
-                    if (out.trim()) out.split(/\r?\n/).forEach(l=>console.log('[SPSO][OUT][INIT]', l));
-                    if (err.trim()) err.split(/\r?\n/).forEach(l=>console.warn('[SPSO][ERR][INIT]', l));
-                    console.log(`[SPSO][RUN][INIT] done code=${code} ms=${ms}`);
-                });
-            } catch (e) {
-                console.log('[SPSO][INIT][FORCE][ERR]', (e as any)?.message || e);
-            }
-        }, 9000); // dopo RBTV per non sovrapporsi all'iniziale RBTV run
-        setInterval(()=> runOnce('loop'), intervalMs);
-        console.log('[SPSO][INIT] poll ogni', intervalMs, 'ms');
-    } catch (e) {
-        console.log('[SPSO][INIT][ERR]', (e as any)?.message || e);
-    }
-})();
 
 // (RIMOSSO) Adaptive windows: sostituito da watcher semplice costante.
 
 // =====================================
-// [P🐽D] STARTUP DIAGNOSTICS (container parity)
-// Attivabile con env: DIAG_PD=1 (default ON per ora salvo DIAG_PD=0)
-// Stampa informazioni su:
-//  - Presenza & hash di pig_channels.py
-//  - Presenza & hash di config/tv_channels.json
-//  - Presenza, size, mtime del dynamic_channels.json selezionato (via getDynamicFilePath)
-//  - Conteggio rapida occorrenze label "[P🐽D]" nel dynamic_channels.json (per confermare injection)
+// [P🐽D] STARTUP DIAGNOSTICS (RIMOSSO)
 // =====================================
-(() => {
-    try {
-        const envVal = (process?.env?.DIAG_PD || '1').toString().toLowerCase();
-        if (['0','false','off','no'].includes(envVal)) {
-            return; // diagnostics disabilitata
-        }
-        const root = path.join(__dirname, '..');
-        const fileInfo = (rel: string) => {
-            const p = path.join(root, rel);
-            if (!fs.existsSync(p)) return { path: p, exists: false, size: 0, mtime: 0, md5: '' };
-            const st = fs.statSync(p);
-            let md5 = '';
-            try { md5 = crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex'); } catch {}
-            return { path: p, exists: true, size: st.size, mtime: st.mtimeMs, md5 };
-        };
-        const pig = fileInfo('pig_channels.py');
-        const tvc = fileInfo('config/tv_channels.json');
-        // dynamic file path discovery (may live in /tmp or config/)
-        let dynPath = '';
-        let dynStats: any = { path: '', exists: false, size: 0, mtime: 0, md5: '', pdStreams: 0 };
-        try {
-            dynPath = getDynamicFilePath();
-            if (dynPath && fs.existsSync(dynPath)) {
-                const st = fs.statSync(dynPath);
-                let md5 = '';
-                try { md5 = crypto.createHash('md5').update(fs.readFileSync(dynPath)).digest('hex'); } catch {}
-                // Quick scan for label occurrences (keep light: don't parse JSON if huge)
-                let pdStreams = 0;
-                try {
-                    const raw = fs.readFileSync(dynPath, 'utf-8');
-                    // Count occurrences of string "[P🐽D]" (label start) to confirm injection; fallback to "[P" if pig emoji missing fonts
-                    const re = /\[P🐽D\]/g; // literal match
-                    const reAlt = /\[P.D\]/g; // extremely defensive (unlikely)
-                    const matches = raw.match(re);
-                    pdStreams = matches ? matches.length : 0;
-                    if (!pdStreams) {
-                        const alt = raw.match(reAlt);
-                        if (alt) pdStreams = alt.length;
-                    }
-                } catch {}
-                dynStats = { path: dynPath, exists: true, size: st.size, mtime: st.mtimeMs, md5, pdStreams };
-            } else {
-                dynStats = { path: dynPath || '(empty)', exists: false, size: 0, mtime: 0, md5: '', pdStreams: 0 };
-            }
-        } catch (e) {
-            dynStats = { path: dynPath || '(error)', exists: false, size: 0, mtime: 0, md5: '', err: String(e), pdStreams: 0 };
-        }
-        const fmtTime = (ms: number) => {
-            if (!ms) return 0;
-            try { return new Date(ms).toISOString(); } catch { return ms; }
-        };
-        console.log('[P🐽D][DIAG] pig_channels.py', { exists: pig.exists, size: pig.size, mtime: fmtTime(pig.mtime), md5: pig.md5.slice(0,12) });
-        console.log('[P🐽D][DIAG] tv_channels.json', { exists: tvc.exists, size: tvc.size, mtime: fmtTime(tvc.mtime), md5: tvc.md5.slice(0,12) });
-        console.log('[P🐽D][DIAG] dynamic_channels.json', { path: dynStats.path, exists: dynStats.exists, size: dynStats.size, mtime: fmtTime(dynStats.mtime), md5: (dynStats.md5||'').slice(0,12), pdLabelCount: dynStats.pdStreams });
-        if (!dynStats.exists) {
-            console.warn('[P🐽D][DIAG] dynamic_channels.json NON TROVATO al bootstrap – Live.py o pig_channels.py non ancora eseguiti nel container?');
-        } else if (dynStats.exists && dynStats.pdStreams === 0) {
-            console.warn('[P🐽D][DIAG] dynamic_channels.json presente ma CONTATORE label [P🐽D] = 0 – possibili cause: pig_channels non eseguito / label diversa / build cache vecchia.');
-        }
-    } catch (e) {
-        try { console.error('[P🐽D][DIAG] Errore diagnostics startup:', e); } catch {}
-    }
-})();
 
 // Cache per i link Vavoo
 interface VavooCache {
@@ -1471,7 +1321,7 @@ try {
                         try {
                             const st = fs.statSync(livePath);
                             console.log('[Live.py][DIAG] path=', livePath, 'size=', st.size, 'mtime=', new Date(st.mtimeMs || st.mtime).toISOString());
-                        } catch {}
+                        } catch { }
                         // individua interpreti python disponibili
                         const candidateBins = [process.env.PYTHON_BIN, 'python3', 'python', 'py'].filter(Boolean) as string[];
                         let chosen: string | null = null;
@@ -1483,7 +1333,7 @@ try {
                                     chosen = b; console.log('[Live.py][DIAG] interpreter ok ->', b, 'version:', (r.stdout || r.stderr).toString().trim());
                                     break;
                                 }
-                            } catch {}
+                            } catch { }
                         }
                         if (!chosen) {
                             console.warn('[Live.py][DIAG] nessun interprete Python funzionante trovato tra', candidateBins.join(','));
@@ -1520,7 +1370,7 @@ try {
         try {
             let tvtapEnableRaw = (process.env.TVTAP_ENABLE || '0').toString().toLowerCase();
             const tvtapEnabled = ['1', 'true', 'on', 'yes'].includes(tvtapEnableRaw);
-            
+
             if (!tvtapEnabled) {
                 console.log('[TVTAP][INIT] TVTAP_ENABLE disabilitato, skip aggiornamenti cache');
                 return;
@@ -1631,7 +1481,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 filtered.catalogs = cats.filter((c: any) => !(c && (c as any).id === 'streamvix_tv'));
                 return filtered;
             }
-        } catch {}
+        } catch { }
         return manifest;
     })();
 
@@ -1651,7 +1501,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     console.log('📴 TV catalog disabled by config.disableLiveTv');
                     return { metas: [], cacheMaxAge: 0 };
                 }
-            } catch {}
+            } catch { }
             try {
                 const lastReq0: any = (global as any).lastExpressRequest;
                 console.log('📥 Catalog TV request:', {
@@ -1660,7 +1510,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     path: lastReq0?.path,
                     url: lastReq0?.url
                 });
-            } catch {}
+            } catch { }
             // === Catalogo TV: modalità NO CACHE per test (di default attiva) ===
             const disableCatalogCache = (() => {
                 try {
@@ -1699,6 +1549,18 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 }
             }
             let filteredChannels = tvChannels;
+
+            // === NUOVO: Filtro per ID catalogo (Static vs Live/Dynamic) ===
+            if (id === 'streamvix_tv') {
+                // Solo canali statici (non hanno _dynamic: true)
+                filteredChannels = filteredChannels.filter((c: any) => !c._dynamic);
+                // console.log(`[CATALOG] streamvix_tv -> filtered static count=${filteredChannels.length}`);
+            } else if (id === 'streamvix_live') {
+                // Solo canali live/dinamici (hanno _dynamic: true)
+                filteredChannels = filteredChannels.filter((c: any) => c._dynamic);
+                // console.log(`[CATALOG] streamvix_live -> filtered dynamic count=${filteredChannels.length}`);
+            }
+
             let requestedSlug: string | null = null;
             let isPlaceholder = false;
 
@@ -1763,7 +1625,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 if (typeof extra === 'string') {
                     const parts = extra.split('&');
                     for (const p of parts) {
-                        const [k,v] = p.split('=');
+                        const [k, v] = p.split('=');
                         if (k === 'genre' && v) genreInput = decodeURIComponent(v);
                     }
                 }
@@ -1790,40 +1652,55 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         const qMatch = fromUrl.match(/genre=([^&]+)/i);
                         if (qMatch) extracted = decodeURIComponent(qMatch[1]);
                         // 2) Extra nel path: /catalog/tv/tv-channels/genre=Coppe.json oppure .../genre=Coppe&...
-            if (!extracted) {
+                        if (!extracted) {
                             const pMatch = fromPath.match(/\/catalog\/[^/]+\/[^/]+\/([^?]+)\.json/i);
                             if (pMatch && pMatch[1]) {
                                 const extraSeg = decodeURIComponent(pMatch[1]);
                                 const g2 = extraSeg.match(/(?:^|&)genre=([^&]+)/i);
                                 if (g2) extracted = g2[1];
-                else if (extraSeg.startsWith('genre=')) extracted = extraSeg.split('=')[1];
-                else if (extraSeg && !extraSeg.includes('=')) extracted = extraSeg; // support /.../Coppe.json
+                                else if (extraSeg.startsWith('genre=')) extracted = extraSeg.split('=')[1];
+                                else if (extraSeg && !extraSeg.includes('=')) extracted = extraSeg; // support /.../Coppe.json
                             }
                         }
                         if (extracted) {
                             genreInput = extracted;
                             console.log(`🔎 Fallback genre extracted from URL/path: '${genreInput}'`);
                         }
-                    } catch {}
+                    } catch { }
                 }
 
                 if (genreInput) {
                     // Normalizza spazi invisibili e accenti
                     genreInput = genreInput.replace(/[\u00A0\u200B\u200C\u200D\uFEFF]/g, ' ').replace(/\s+/g, ' ').trim();
                     const norm = genreInput.trim().toLowerCase()
-                        .replace(/[àáâãä]/g,'a').replace(/[èéêë]/g,'e')
-                        .replace(/[ìíîï]/g,'i').replace(/[òóôõö]/g,'o')
-                        .replace(/[ùúûü]/g,'u');
+                        .replace(/[àáâãä]/g, 'a').replace(/[èéêë]/g, 'e')
+                        .replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o')
+                        .replace(/[ùúûü]/g, 'u');
                     const genreMap: { [key: string]: string } = {
-                        'rai':'rai','mediaset':'mediaset','sky':'sky','bambini':'kids','news':'news','sport':'sport','cinema':'movies','generali':'general','documentari':'documentari','discovery':'discovery','pluto':'pluto','serie a':'seriea','serie b':'serieb','serie c':'seriec','coppe':'coppe','soccer':'soccer','tennis':'tennis','f1':'f1','motogp':'motogp','basket':'basket','volleyball':'volleyball','ice hockey':'icehockey','wrestling':'wrestling','boxing':'boxing','darts':'darts','baseball':'baseball','nfl':'nfl'
+                        'rai': 'rai', 'mediaset': 'mediaset', 'sky': 'sky', 'bambini': 'kids', 'news': 'news', 'sport': 'sport', 'cinema': 'movies', 'generali': 'general', 'documentari': 'documentari', 'discovery': 'discovery', 'pluto': 'pluto', 'serie a': 'seriea', 'serie b': 'serieb', 'serie c': 'seriec', 'coppe': 'coppe', 'soccer': 'soccer', 'tennis': 'tennis', 'f1': 'f1', 'motogp': 'motogp', 'basket': 'basket', 'volleyball': 'volleyball', 'ice hockey': 'icehockey', 'wrestling': 'wrestling', 'boxing': 'boxing', 'darts': 'darts', 'baseball': 'baseball', 'nfl': 'nfl'
                     };
                     // Aggiungi mapping per nuove leghe
                     genreMap['premier league'] = 'premierleague';
                     genreMap['liga'] = 'liga';
                     genreMap['bundesliga'] = 'bundesliga';
                     genreMap['ligue 1'] = 'ligue1';
+                    genreMap['thisnot'] = 'thisnot';
+                    genreMap['ppv'] = 'ppv';
                     const target = genreMap[norm] || norm;
                     requestedSlug = target;
+
+                    // DEBUG: Log primi 5 canali ThisNot PRIMA del filtro
+                    if (target === 'thisnot') {
+                        const thisnotChannels = tvChannels.filter((ch: any) => {
+                            const catRaw = ch.category;
+                            return catRaw === 'thisnot' || catRaw === 'THISNOT' || (Array.isArray(catRaw) && catRaw.includes('thisnot'));
+                        }).slice(0, 5);
+                        console.log(`🔍 DEBUG: Trovati ${thisnotChannels.length} canali con category='thisnot' (pre-filter)`);
+                        thisnotChannels.forEach((ch: any, idx: number) => {
+                            console.log(`  [${idx}] id=${ch.id}, name="${ch.name}", category=${JSON.stringify(ch.category)}, getChannelCategories=${JSON.stringify(getChannelCategories(ch))}`);
+                        });
+                    }
+
                     filteredChannels = tvChannels.filter(ch => getChannelCategories(ch).includes(target));
                     console.log(`🔍 Genre='${norm}' -> slug='${target}' results=${filteredChannels.length}`);
                 } else {
@@ -1875,10 +1752,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     filteredChannels = filteredChannels.map((ch: any) => ch && (ch as any)._dynamic ? sortedDyn[di++] : ch);
                     console.log(`⏱️ Sorted only dynamic events within category '${requestedSlug}' (asc)`);
                 }
-            } catch {}
+            } catch { }
 
             // Aggiungi prefisso tv: agli ID, posterShape landscape e EPG
-                const tvChannelsWithPrefix = await Promise.all(filteredChannels.map(async (channel: any) => {
+            const tvChannelsWithPrefix = await Promise.all(filteredChannels.map(async (channel: any) => {
                 const channelWithPrefix = {
                     ...channel,
                     id: `tv:${channel.id}`,
@@ -1895,12 +1772,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 let gdTagged = false;
                 try {
                     // CHANGED: Use GDPLAYER_ENABLE for clarity (default OFF, independent from D_CF)
-                    const enableTag = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||''));
+                    const enableTag = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || ''));
                     if (enableTag && channel && channel.name && !/\[Gd\]/i.test(channel.name)) {
-                        const strict = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_STRICT||''));
+                        const strict = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_STRICT || ''));
                         let shouldTag = false;
                         let inferredSlug: string | null = null;
-                        const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                        const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                         if (logEnabled) {
                             console.log('[GD][TAG][CAT] candidate', { id: channel.id, name: channel.name, dynamic: !!(channel as any)._dynamic, strict, enableTag });
                         }
@@ -1920,49 +1797,83 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             if (!(channel as any)._dynamic) {
                                 const origDesc = channelWithPrefix.description || channel.description || '';
                                 // Append source note only in description
-                                channelWithPrefix.description = `${origDesc}\n[Gd]${strict? '':' (slug)'} source`.trim();
+                                channelWithPrefix.description = `${origDesc}\n[Gd]${strict ? '' : ' (slug)'} source`.trim();
                             }
                         } else if (logEnabled) {
                             console.log('[GD][TAG][CAT] skip', { reason: 'no-match', strict, inferredSlug });
                         }
                     }
-                } catch {}
+                } catch { }
 
                 // Per canali dinamici: niente EPG, mostra solo ora inizio evento
                 if ((channel as any)._dynamic) {
                     const eventStart = (channel as any).eventStart || (channel as any).eventstart; // fallback
-                    const stripTimePrefix = (t: string): string => t.replace(/^\s*([⏰🕒]?\s*)?\d{1,2}[\.:]\d{2}\s*[:\-]\s*/i, '').trim();
-                    if (eventStart) {
-                        try {
-                            const hhmm = epgManager ? epgManager.formatDynamicHHMM(eventStart) : new Date(eventStart).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\./g, ':');
-                            const ddmm = epgManager ? epgManager.formatDynamicDDMM(eventStart) : '';
-                            const rawTitle = stripTimePrefix(channel.name || '');
-                            const parts = rawTitle.split(' - ').map(s => s.trim()).filter(Boolean);
-                            const eventTitle = parts[0] || rawTitle;
-                            // Deriva league + date + country dal resto
-                            let tail = parts.slice(1).join(' - ');
-                            const dateMatch = rawTitle.match(/\b(\d{1,2}\/\d{1,2})\b/);
-                            const dateStr = dateMatch?.[1] || ddmm;
-                            const hasItaly = /\bitaly\b/i.test(rawTitle);
-                            // Rimuovi date/country dal tail per ottenere la lega pulita
-                            let league = tail
-                                .replace(/\b(\d{1,2}\/\d{1,2})\b/gi, '')
-                                .replace(/\bitaly\b/gi, '')
-                                .replace(/\s{2,}/g, ' ')
-                                .replace(/^[-–—\s]+|[-–—\s]+$/g, '')
+                    const isThisNot = ((channel as any).category || '').toLowerCase() === 'thisnot';
+
+                    // Per canali THISNOT: usa il formato originale senza manipolazioni
+                    if (isThisNot) {
+                        // Nome canale già nel formato: "04/11 ⏰ 21:00 - JUVENTUS VS SPORTING LISBONA"
+                        console.log(`[THISNOT] Processing channel: "${channel.name}"`);
+
+                        // Estrai le parti per la descrizione
+                        const nameMatch = channel.name.match(/^(\d{2}\/\d{2})\s*⏰\s*(\d{2}:\d{2})\s*-\s*(.+?)(?:\s*-\s*\d{2}\/\d{2})?$/);
+                        if (nameMatch) {
+                            const dateStr = nameMatch[1];  // "04/11"
+                            const timeStr = nameMatch[2];  // "21:00"
+                            let teams = nameMatch[3];      // "JUVENTUS VS SPORTING LISBONA"
+
+                            // Rimuovi eventuali competizioni e date finali
+                            teams = teams
+                                .replace(/\s*-\s*(Serie A|Bundesliga|LaLiga|Premier League|Champions League)\s*$/i, '')
+                                .replace(/\s*-\s*\d{2}\/\d{2}\s*$/g, '')
                                 .trim();
-                            // Titolo canale: Evento ⏰ HH:MM - DD/MM (senza Italy, senza lega)
-                            // (Removed [Gd] visual prefix; retain internal flag only)
-                            const baseEventName = `${eventTitle} ⏰ ${hhmm}${dateStr ? ` - ${dateStr}` : ''}`;
-                            (channelWithPrefix as any).name = baseEventName;
-                            // Summary: 🔴 Inizio: HH:MM - Evento - Lega - DD/MM Italy
-                            channelWithPrefix.description = `🔴 Inizio: ${hhmm} - ${eventTitle}${league ? ` - ${league}` : ''}${dateStr ? ` - ${dateStr}` : ''}${hasItaly ? ' Italy' : ''}`.trim();
-                        } catch {
-                            channelWithPrefix.description = channel.name || '';
+
+                            // Nome: mantieni originale
+                            channelWithPrefix.name = channel.name;
+                            // Descrizione: 🔴 Inizio: HH:MM - DD/MM ⏰ TEAMS
+                            channelWithPrefix.description = `🔴 Inizio: ${timeStr} - ${dateStr} ⏰ ${teams}`;
+                            console.log(`[THISNOT] Description: "${channelWithPrefix.description}"`);
+                        } else {
+                            console.log(`[THISNOT] No match for: "${channel.name}"`);
+                            // Fallback: mantieni nome originale e crea descrizione semplice
+                            channelWithPrefix.name = channel.name;
+                            channelWithPrefix.description = `🔴 ${channel.name}`;
                         }
                     } else {
-                        // Se manca l'orario, mantieni nome e descrizione originali
-                        channelWithPrefix.description = channel.name || '';
+                        // Logica originale per altri canali dinamici
+                        const stripTimePrefix = (t: string): string => t.replace(/^\s*([⏰🕒]?\s*)?\d{1,2}[\.:]\d{2}\s*[:\-]\s*/i, '').trim();
+                        if (eventStart) {
+                            try {
+                                const hhmm = epgManager ? epgManager.formatDynamicHHMM(eventStart) : new Date(eventStart).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\./g, ':');
+                                const ddmm = epgManager ? epgManager.formatDynamicDDMM(eventStart) : '';
+                                const rawTitle = stripTimePrefix(channel.name || '');
+                                const parts = rawTitle.split(' - ').map(s => s.trim()).filter(Boolean);
+                                const eventTitle = parts[0] || rawTitle;
+                                // Deriva league + date + country dal resto
+                                let tail = parts.slice(1).join(' - ');
+                                const dateMatch = rawTitle.match(/\b(\d{1,2}\/\d{1,2})\b/);
+                                const dateStr = dateMatch?.[1] || ddmm;
+                                const hasItaly = /\bitaly\b/i.test(rawTitle);
+                                // Rimuovi date/country dal tail per ottenere la lega pulita
+                                let league = tail
+                                    .replace(/\b(\d{1,2}\/\d{1,2})\b/gi, '')
+                                    .replace(/\bitaly\b/gi, '')
+                                    .replace(/\s{2,}/g, ' ')
+                                    .replace(/^[-–—\s]+|[-–—\s]+$/g, '')
+                                    .trim();
+                                // Titolo canale: Evento ⏰ HH:MM - DD/MM (senza Italy, senza lega)
+                                // (Removed [Gd] visual prefix; retain internal flag only)
+                                const baseEventName = `${eventTitle} ⏰ ${hhmm}${dateStr ? ` - ${dateStr}` : ''}`;
+                                (channelWithPrefix as any).name = baseEventName;
+                                // Summary: 🔴 Inizio: HH:MM - Evento - Lega - DD/MM Italy
+                                channelWithPrefix.description = `🔴 Inizio: ${hhmm} - ${eventTitle}${league ? ` - ${league}` : ''}${dateStr ? ` - ${dateStr}` : ''}${hasItaly ? ' Italy' : ''}`.trim();
+                            } catch {
+                                channelWithPrefix.description = channel.name || '';
+                            }
+                        } else {
+                            // Se manca l'orario, mantieni nome e descrizione originali
+                            channelWithPrefix.description = channel.name || '';
+                        }
                     }
                 } else if (epgManager) {
                     // Canali tradizionali: EPG
@@ -1985,18 +1896,18 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 
                 // Final post-tag log (only if enabled)
                 try {
-                    const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                    const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                     if (logEnabled) {
                         console.log('[GD][TAG][CAT][FINAL]', { id: channel.id, finalName: channelWithPrefix.name, gdTagged, dynamic: !!(channel as any)._dynamic });
                     }
-                } catch {}
+                } catch { }
                 return channelWithPrefix;
             }));
 
-                console.log(`✅ Returning ${tvChannelsWithPrefix.length} TV channels for catalog ${id}${isPlaceholder ? ' (placeholder, cacheMaxAge=0)' : ''}`);
-                return isPlaceholder
-                    ? { metas: tvChannelsWithPrefix, cacheMaxAge: 0 }
-                    : { metas: tvChannelsWithPrefix };
+            console.log(`✅ Returning ${tvChannelsWithPrefix.length} TV channels for catalog ${id}${isPlaceholder ? ' (placeholder, cacheMaxAge=0)' : ''}`);
+            return isPlaceholder
+                ? { metas: tvChannelsWithPrefix, cacheMaxAge: 0 }
+                : { metas: tvChannelsWithPrefix };
         }
         console.log(`❌ No catalog found for type=${type}, id=${id}`);
         return { metas: [] };
@@ -2006,13 +1917,6 @@ function createBuilder(initialConfig: AddonConfig = {}) {
     builder.defineMetaHandler(async ({ type, id }: { type: string; id: string }) => {
         console.log(`📺 META REQUEST: type=${type}, id=${id}`);
         if (type === "tv") {
-            try {
-                const cfg = { ...configCache } as AddonConfig;
-                if (cfg.disableLiveTv) {
-                    console.log('📴 TV meta disabled by config.disableLiveTv');
-                    return { meta: null };
-                }
-            } catch {}
             // Gestisci tutti i possibili formati di ID che Stremio può inviare
             let cleanId = id;
             if (id.startsWith('tv:')) {
@@ -2027,6 +1931,70 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 }
             }
 
+            // === THISNOT META HANDLER ===
+            // Prima controlla se è un canale ThisNot
+            const allChannels = loadDynamicChannels(false);
+
+            // Match ThisNot channels by ID prefix (thisnot_XX_) ignoring timestamp, or by category if exact match fails
+            let thisnotChannel = allChannels.find((c: any) => c.id === cleanId && (c.category || '').toLowerCase() === 'thisnot');
+
+            // Se non trovato con ID esatto, prova con prefisso (ignora timestamp finale)
+            if (!thisnotChannel && cleanId.startsWith('thisnot_')) {
+                const idPrefix = cleanId.substring(0, cleanId.lastIndexOf('_') + 1); // "thisnot_45_"
+                thisnotChannel = allChannels.find((c: any) =>
+                    c.id.startsWith(idPrefix) && (c.category || '').toLowerCase() === 'thisnot'
+                );
+                if (thisnotChannel) {
+                    console.log(`✅ Found ThisNot channel by prefix match: ${cleanId} -> ${thisnotChannel.id}`);
+                }
+            }
+
+            if (thisnotChannel) {
+                console.log(`✅ Found ThisNot channel for meta: ${thisnotChannel.name}`);
+
+                // Crea la descrizione usando lo stesso formato del catalog
+                let description = `🔴 Live Sports Event: ${thisnotChannel.name}\n\nStreaming MPD con DRM Clearkey`;
+                const nameMatch = thisnotChannel.name.match(/^(\d{2}\/\d{2})\s*⏰\s*(\d{2}:\d{2})\s*-\s*(.+?)(?:\s*-\s*\d{2}\/\d{2})?$/);
+                if (nameMatch) {
+                    const dateStr = nameMatch[1];  // "04/11"
+                    const timeStr = nameMatch[2];  // "21:00"
+                    let teams = nameMatch[3];      // "ATLETICO MADRID VS ROYALE UNION SG"
+
+                    // Rimuovi eventuali competizioni e date finali
+                    teams = teams
+                        .replace(/\s*-\s*(Serie A|Bundesliga|LaLiga|Premier League|Champions League)\s*$/i, '')
+                        .replace(/\s*-\s*\d{2}\/\d{2}\s*$/g, '')
+                        .trim();
+
+                    description = `🔴 Inizio: ${timeStr} - ${dateStr} ⏰ ${teams}`;
+                }
+
+                const meta = {
+                    id: `tv:${thisnotChannel.id}`,
+                    type: 'tv',
+                    name: thisnotChannel.name || 'Unknown',
+                    poster: thisnotChannel.logo || 'https://github.com/qwertyuiop8899/logo/blob/main/TSNT.png?raw=true',
+                    posterShape: 'square',
+                    background: thisnotChannel.logo,
+                    description: description,
+                    genres: ['Sport', 'Live', 'ThisNot'],
+                    year: new Date().getFullYear().toString(),
+                    releaseInfo: "Live Event",
+                    country: "IT",
+                    language: "it"
+                };
+                return { meta };
+            }
+
+            // Se non è ThisNot, continua con la logica normale
+            try {
+                const cfg = { ...configCache } as AddonConfig;
+                if (cfg.disableLiveTv) {
+                    console.log('📴 TV meta disabled by config.disableLiveTv');
+                    return { meta: null };
+                }
+            } catch { }
+
             const channel = tvChannels.find((c: any) => c.id === cleanId);
             if (channel) {
                 console.log(`✅ Found channel for meta: ${channel.name}`);
@@ -2035,12 +2003,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 let baseName = channel.name;
                 try {
                     // CHANGED: Use GDPLAYER_ENABLE for clarity (default OFF, independent from D_CF)
-                    const enableTag = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||''));
+                    const enableTag = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || ''));
                     if (enableTag && baseName && !/\[Gd\]/i.test(baseName)) {
-                        const strict = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_STRICT||''));
+                        const strict = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_STRICT || ''));
                         let shouldTag = false;
                         let inferredSlug: string | null = null;
-                        const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                        const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                         if (logEnabled) {
                             console.log('[GD][TAG][META] candidate', { id: channel.id, name: channel.name, strict, enableTag });
                         }
@@ -2055,7 +2023,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         }
                         if (shouldTag) { (channel as any)._gdTagged = true; /* no visual prefix */ } else if (logEnabled) console.log('[GD][TAG][META] skip', { reason: 'no-match', strict, inferredSlug });
                     }
-                } catch {}
+                } catch { }
 
                 const metaWithPrefix = {
                     ...channel,
@@ -2100,7 +2068,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const baseMetaEventName = `${eventTitle} ⏰ ${hhmm}${dateStr ? ` - ${dateStr}` : ''}`;
                             (metaWithPrefix as any).name = baseMetaEventName; // no [Gd] prefix
                             finalDesc = `🔴 Inizio: ${hhmm} - ${eventTitle}${league ? ` - ${league}` : ''}${dateStr ? ` - ${dateStr}` : ''}${hasItaly ? ' Italy' : ''}`.trim();
-                        } catch {/* ignore */}
+                        } catch {/* ignore */ }
                     }
                     (metaWithPrefix as any).description = finalDesc;
                 } else if (epgManager) {
@@ -2187,55 +2155,26 @@ function createBuilder(initialConfig: AddonConfig = {}) {
             try {
                 console.log(`🔍 Stream request: ${type}/${id}`);
 
-                // FIXED: Usa config dalla richiesta se disponibile, altrimenti usa cache
-                // e aggiorna cache se la richiesta ha MFP
-                let config = { ...configCache };
+                // FIX DEFINITIVO: L'MFP viene preso dalla config dell'utente (requestConfig)
+                // Se l'utente non ha MFP configurato, usa env vars come fallback (per installazioni locali)
+                // MAI dalla configCache globale (che era il bug - veniva contaminata da altri utenti)
+                let config: any = {};
                 if (requestConfig && Object.keys(requestConfig).length > 0) {
-                    console.log(`🔧 [SPON-FIX] Config received from request:`, requestConfig);
-                    config = { ...config, ...requestConfig };
-                    // Aggiorna cache se requestConfig ha MFP
-                    if (requestConfig.mediaFlowProxyUrl || requestConfig.mediaFlowProxyPassword) {
-                        console.log(`🔧 [SPON-FIX] Updating configCache with MFP from request`);
-                        Object.assign(configCache, {
-                            mediaFlowProxyUrl: requestConfig.mediaFlowProxyUrl || configCache.mediaFlowProxyUrl,
-                            mediaFlowProxyPassword: requestConfig.mediaFlowProxyPassword || configCache.mediaFlowProxyPassword
-                        });
-                    }
+                    config = { ...requestConfig };
                 }
-                console.log(`🔧 Using config for stream (MFP: ${config.mediaFlowProxyUrl ? 'SET' : 'MISSING'}):`, config);
+
+                // MFP: prima dalla config utente, poi da env vars (per installazioni locali)
+                // NORMALIZZA: rimuovi trailing slash per evitare doppi slash in URL tipo /proxy/...
+                const mfpUrl = (config.mediaFlowProxyUrl || process.env.MFP_URL || '').toString().trim().replace(/\/+$/, '');
+                const mfpPsw = (config.mediaFlowProxyPassword || process.env.MFP_PSW || process.env.MFP_PASSWORD || '').toString().trim();
+                console.log(`🔧 [MFP] User config: url=${mfpUrl || '(none)'} pass=${mfpPsw ? 'SET' : '(none)'}`);
 
                 const allStreams: Stream[] = [];
 
-                // Prima della logica degli stream TV, aggiungi:
-                // Usa sempre lo stesso proxy per tutto
-                // MediaFlow config: allow fallback to environment variables if not provided via addon config
-                let mfpUrlRaw = '';
-                let mfpPswRaw = '';
-                try {
-                    mfpUrlRaw = (config.mediaFlowProxyUrl || (process && process.env && (process.env.MFP_URL || process.env.MEDIAFLOW_PROXY_URL)) || '').toString().trim();
-                    mfpPswRaw = (config.mediaFlowProxyPassword || (process && process.env && (process.env.MFP_PASSWORD || process.env.MEDIAFLOW_PROXY_PASSWORD)) || '').toString().trim();
-                } catch {}
-                let mfpUrl = mfpUrlRaw ? normalizeProxyUrl(mfpUrlRaw) : '';
-                let mfpPsw = mfpPswRaw;
-                debugLog(`[MFP] Using url=${mfpUrl ? 'SET' : 'MISSING'} pass=${mfpPsw ? 'SET' : 'MISSING'}`);
+
 
                 // === LOGICA TV ===
                 if (type === "tv") {
-                    // Runtime disable live TV
-                    try {
-                        const cfg2 = { ...configCache } as AddonConfig;
-                        if (cfg2.disableLiveTv) {
-                            console.log('📴 TV streams disabled by config.disableLiveTv');
-                            return { streams: [] };
-                        }
-                    } catch {}
-                    // Assicura che i canali dinamici siano presenti anche se la prima richiesta è uno stream (senza passare dal catalog)
-                    try {
-                        loadDynamicChannels(false);
-                        tvChannels = mergeDynamic([...staticBaseChannels]);
-                    } catch (e) {
-                        console.error('❌ Stream handler: mergeDynamic failed:', e);
-                    }
                     // Improved channel ID parsing to handle different formats from Stremio
                     let cleanId = id;
 
@@ -2252,7 +2191,98 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         }
                     }
 
+                    // === THISNOT STREAM HANDLER ===
+                    // Prima controlla se è un canale ThisNot
+                    const allChannels = loadDynamicChannels(false);
+
+                    // Match ThisNot channels by ID prefix (thisnot_XX_) ignoring timestamp, or by category if exact match fails
+                    let thisnotChannel = allChannels.find((c: any) => c.id === cleanId && (c.category || '').toLowerCase() === 'thisnot');
+
+                    // Se non trovato con ID esatto, prova con prefisso (ignora timestamp finale)
+                    if (!thisnotChannel && cleanId.startsWith('thisnot_')) {
+                        const idPrefix = cleanId.substring(0, cleanId.lastIndexOf('_') + 1); // "thisnot_45_"
+                        thisnotChannel = allChannels.find((c: any) =>
+                            c.id.startsWith(idPrefix) && (c.category || '').toLowerCase() === 'thisnot'
+                        );
+                        if (thisnotChannel) {
+                            console.log(`✅ Found ThisNot channel by prefix match: ${cleanId} -> ${thisnotChannel.id}`);
+                        }
+                    }
+
+                    if (thisnotChannel) {
+                        console.log(`✅ Found ThisNot channel for stream: ${thisnotChannel.name}`);
+                        const streams: Stream[] = [];
+
+                        if (thisnotChannel.streams && Array.isArray(thisnotChannel.streams)) {
+                            for (const stream of thisnotChannel.streams) {
+                                if (stream.url) {
+                                    // Decodifica la staticUrlMpd da base64
+                                    let decodedUrl = '';
+                                    try {
+                                        decodedUrl = Buffer.from(stream.url, 'base64').toString('utf-8');
+                                        console.log(`🔓 Decoded ThisNot stream URL: ${decodedUrl.substring(0, 100)}...`);
+                                    } catch (e) {
+                                        console.error('❌ Error decoding ThisNot stream URL:', e);
+                                        continue;
+                                    }
+
+                                    // Formato decodificato: https://url.mpd&key_id=xxx&key=yyy
+                                    let finalUrl = decodedUrl;
+                                    let proxyUsed = false;
+
+                                    // Wrappa con MediaflowProxy se disponibile
+                                    if (mfpUrl) {
+                                        const urlParts = decodedUrl.split('&');
+                                        const baseUrl = urlParts[0]; // URL MPD base
+                                        const additionalParams = urlParts.slice(1); // key_id e key
+                                        const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                        finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+                                        // Aggiungi i parametri DRM
+                                        for (const param of additionalParams) {
+                                            if (param) finalUrl += `&${param}`;
+                                        }
+                                        proxyUsed = true;
+                                        console.log(`🔒 Wrapped ThisNot with MFP: ${finalUrl.substring(0, 100)}...`);
+                                    } else {
+                                        console.warn('⚠️ MediaflowProxy not configured for ThisNot streams');
+                                    }
+
+                                    streams.push({
+                                        url: finalUrl,
+                                        title: `${proxyUsed ? '' : '[❌Proxy]'}🏆 ThisNot [ITA]`,
+                                        behaviorHints: {
+                                            notWebReady: true,
+                                            bingeGroup: `thisnot-${cleanId}`
+                                        }
+                                    });
+                                }
+                            }
+                        }
+
+                        console.log(`✅ Returning ${streams.length} ThisNot streams (MFP: ${mfpUrl ? 'SET' : 'MISSING'})`);
+                        return { streams };
+                    }
+
+                    // Runtime disable live TV (solo per canali normali)
+                    // FIX: usa config dell'utente, NON configCache globale
+                    try {
+                        if ((config as any).disableLiveTv) {
+                            console.log('📴 TV streams disabled by config.disableLiveTv');
+                            return { streams: [] };
+                        }
+                    } catch { }
+                    // Assicura che i canali dinamici siano presenti anche se la prima richiesta è uno stream (senza passare dal catalog)
+                    try {
+                        loadDynamicChannels(false);
+                        tvChannels = mergeDynamic([...staticBaseChannels]);
+                    } catch (e) {
+                        console.error('❌ Stream handler: mergeDynamic failed:', e);
+                    }
+
                     debugLog(`Looking for channel with ID: ${cleanId} (original ID: ${id})`);
+
+
+
                     const channel = tvChannels.find((c: any) => c.id === cleanId);
 
                     if (!channel) {
@@ -2261,7 +2291,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const PLACEHOLDER_LOGO_BASE = 'https://raw.githubusercontent.com/qwertyuiop8899/logo/main';
                             const placeholderVideo = `${PLACEHOLDER_LOGO_BASE}/nostream.mp4`;
                             console.log(`🧩 Placeholder channel requested (ephemeral): ${cleanId}`);
-                            return { streams: [ { url: placeholderVideo, title: 'Nessuno Stream' } ] };
+                            return { streams: [{ url: placeholderVideo, title: 'Nessuno Stream' }] };
                         }
                         console.log(`❌ Channel ${id} not found`);
                         debugLog(`❌ Channel not found in the TV channels list. Original ID: ${id}, Clean ID: ${cleanId}`);
@@ -2271,10 +2301,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     // Gestione placeholder: ritorna un singolo "stream" fittizio (immagine)
                     if ((channel as any)._placeholder) {
                         const vid = (channel as any).placeholderVideo || (channel as any).logo || (channel as any).poster || '';
-                        return { streams: [ {
-                            url: vid,
-                            title: 'Nessuno Stream'
-                        } ] };
+                        return {
+                            streams: [{
+                                url: vid,
+                                title: 'Nessuno Stream'
+                            }]
+                        };
                     }
 
                     console.log(`✅ Found channel: ${channel.name}`);
@@ -2289,7 +2321,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     // Preparazione: risoluzione GD statica ritardata (inserimento dopo PD/Vavoo/free)
                     let gdStaticPending: { url: string; title: string } | null = null;
                     // Helper per nome canale pulito da slug gdplayer (senza orario / evento)
-                    const GD_SLUG_DISPLAY: Record<string,string> = {
+                    const GD_SLUG_DISPLAY: Record<string, string> = {
                         'sky-uno': 'Sky Uno',
                         'sky-sport-tennis': 'Sky Sport Tennis',
                         'sky-sport-24': 'Sky Sport 24',
@@ -2324,22 +2356,22 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         return mapped.join(' ');
                     }
                     try {
-                        const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||'1'));
-                        if (enableGdPlayer && mfpUrl && mfpPsw && !(channel as any)._dynamic) { // richiede MFP configurato
-                            const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                        const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || '1'));
+                        if (enableGdPlayer && mfpUrl && !(channel as any)._dynamic) { // richiede MFP URL configurato
+                            const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                             const inferredSlug = inferGdplayerSlug(channel as any);
                             if (inferredSlug) {
                                 try {
                                     const gd = await resolveGdplayerForChannel(channel as any, { mfpUrl: mfpUrl, mfpPassword: mfpPsw });
-                                        if (gd && gd.url && !gd.error) {
-                                            const finalUrl = gd.wrappedUrl || gd.url;
-                                            const cleanName = gdDisplayNameFromSlug(gd.slug) || channel.name;
-                                            gdStaticPending = { url: finalUrl, title: `[🌐Gd] ${cleanName} [ITA]` };
+                                    if (gd && gd.url && !gd.error) {
+                                        const finalUrl = gd.wrappedUrl || gd.url;
+                                        const cleanName = gdDisplayNameFromSlug(gd.slug) || channel.name;
+                                        gdStaticPending = { url: finalUrl, title: `[🌐Gd] ${cleanName} [ITA]` };
                                     }
-                                } catch {/* silent */}
+                                } catch {/* silent */ }
                             }
                         }
-                    } catch {/* ignore gdplayer static errors */}
+                    } catch {/* ignore gdplayer static errors */ }
                     const vavooCleanPromises: Promise<void>[] = [];
                     // Collect clean Vavoo results per variant index to prepend in order later
                     const vavooCleanPrepend: Array<{ url: string; title: string } | undefined> = [];
@@ -2350,6 +2382,166 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 
                     // Dynamic event channels: dynamicDUrls -> usa stessa logica avanzata di staticUrlD per estrarre link finale
                     if ((channel as any)._dynamic) {
+                        // === PPV EARLY RETURN: solo stream originali PPV, niente extra ===
+                        const channelCategory = ((channel as any).category || '').toString().toUpperCase();
+                        const isPPV = channelCategory === 'PPV' || (channel as any).id?.startsWith('ppv_');
+                        if (isPPV) {
+                            console.log(`[PPV] ✅ Canale PPV rilevato: ${channel.id} - restituisco solo stream originali`);
+                            const ppvStreams: Stream[] = [];
+                            const dArr = Array.isArray((channel as any).dynamicDUrls) ? (channel as any).dynamicDUrls : [];
+                            for (const d of dArr) {
+                                if (d.url) {
+                                    // Determina se LIVE o NOT LIVE basandosi su eventStart
+                                    let liveStatus = '🔴 LIVE'; // default
+                                    try {
+                                        const evStart = (channel as any).eventStart || (channel as any).eventstart;
+                                        if (evStart) {
+                                            const startDate = new Date(evStart);
+                                            const now = Date.now();
+                                            const diffMs = startDate.getTime() - now;
+                                            // NOT LIVE se mancano più di 30 minuti (1800000 ms)
+                                            if (diffMs > 1800000) {
+                                                liveStatus = '🚫 NOT LIVE';
+                                            } else {
+                                                liveStatus = '🔴 LIVE';
+                                            }
+                                        }
+                                    } catch { }
+                                    // name = LIVE/NOT LIVE status (come 'Live 🔴' in altri stream)
+                                    // title = 🇬🇧 PPV (descrizione stream)
+                                    ppvStreams.push({
+                                        url: d.url,
+                                        name: liveStatus,
+                                        title: '🇬🇧 PPV'
+                                    } as any);
+                                }
+                            }
+                            console.log(`[PPV] Returning ${ppvStreams.length} PPV-only streams`);
+                            return { streams: ppvStreams };
+                        }
+
+
+
+                        // === ThisNot EARLY RETURN: Proxy via MFP ===
+                        const isThisNot = channelCategory === 'THISNOT' || (channel as any).id?.startsWith('thisnot_');
+                        if (isThisNot) {
+                            // Canali ThisNot: dynamicDUrls contiene il link base64 (staticUrlMpd) in "url"
+                            // Dobbiamo costruire il link proxato: {mfpUrl}/proxy/stream?d={base64}&api_password={psw}...
+                            const tStreams: Stream[] = [];
+                            const dArr = Array.isArray((channel as any).dynamicDUrls) ? (channel as any).dynamicDUrls : [];
+
+                            if (mfpUrl) {
+                                const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                const headersParam = `&headers=${encodeURIComponent('{"User-Agent":"Mozilla/5.0"}')}`;
+
+                                for (const d of dArr) {
+                                    if (d.url) {
+                                        // d.url è già il base64 (MPD&key...), lo usiamo come parametro d
+                                        // Attenzione: se d.url contiene già parametri, ok, è stringa opaca per noi
+                                        const finalUrl = `${mfpUrl}/proxy/stream?d=${d.url}${passwordParam}${headersParam}`;
+
+                                        tStreams.push({
+                                            url: finalUrl,
+                                            name: '🔴 LIVE',
+                                            title: 'ThisNot'
+                                        } as any);
+                                    }
+                                }
+                                console.log(`[ThisNot] ✅ Canale ThisNot rilevato: ${channel.id} - restituisco ${tStreams.length} stream proxati`);
+                                return { streams: tStreams };
+                            } else {
+                                console.log(`[ThisNot] ⚠️ MFP URL mancante, impossibile proxare canali ThisNot`);
+                                // Fallback: restituisci diretto (non funzionerà per CORS/mixed content probabilmente, ma meglio di niente)
+                                // O forse meglio non restituire nulla se manca proxy?
+                                // Proviamo a restituire link diretto decodificato nel caso serva debug
+                            }
+                        }
+
+                        // === Z-Eventi & X-Eventi EARLY RETURN: MPD con chiavi - costruisce URL proxy usando config utente ===
+                        const isZEventi = channelCategory === 'Z-EVENTI' || (channel as any).id?.startsWith('zeventi_');
+                        const isXEventi = channelCategory === 'X-Eventi' || channelCategory === 'X-EVENTI' || (channel as any).id?.startsWith('xeventi_');
+
+                        if (isZEventi || isXEventi) {
+                            const zStreams: Stream[] = [];
+                            const dArr = [
+                                ...(Array.isArray((channel as any).streams) ? (channel as any).streams : []),
+                                ...(Array.isArray((channel as any).dynamicDUrls) ? (channel as any).dynamicDUrls : [])
+                            ];
+                            const groupTitle = isZEventi ? 'Z-Eventi' : 'X-Eventi';
+                            const logPrefix = isZEventi ? '[Z-Eventi]' : '[X-Eventi]';
+
+                            if (mfpUrl) {
+                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+
+                                for (const d of dArr) {
+                                    if (d.url) {
+                                        // d.url è nel formato: mpdUrl&key_id=kids&key=keys
+                                        // Dobbiamo costruire: {mfpUrl}/proxy/mpd/manifest.m3u8?{passwordParam}d={encodedMpdUrl}&key_id=...&key=...
+                                        // Verifica se ci sono chiavi:
+                                        if (d.url.includes('key_id=') && d.url.includes('key=')) {
+                                            // HA CHIAVI -> PROXY
+                                            const urlParts = d.url.split('&');
+                                            const baseUrl = urlParts[0];
+                                            const additionalParams = urlParts.slice(1);
+
+                                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+
+                                            for (const param of additionalParams) {
+                                                if (param) {
+                                                    proxyUrl += `&${param}`;
+                                                }
+                                            }
+
+                                            zStreams.push({
+                                                url: proxyUrl,
+                                                name: '🌐 🔴 LIVE',
+                                                title: (channel as any).name || groupTitle
+                                            } as any);
+                                        } else {
+                                            // NON HA CHIAVI -> DIRETTO (Clean)
+                                            // Anche se c'è MFP, se il link è clean non serve proxarlo (risparmia banda proxy)
+                                            zStreams.push({
+                                                url: d.url,
+                                                name: '🔴 LIVE',
+                                                title: (channel as any).name || groupTitle
+                                            } as any);
+                                        }
+                                    }
+                                }
+                                console.log(`${logPrefix} ✅ Canale rilevato: ${channel.id} - restituisco ${zStreams.length} stream (mix proxy/direct)`);
+                                return { streams: zStreams };
+                            } else {
+                                console.log(`${logPrefix} ⚠️ MFP URL mancante. Verifico se i link richiedono proxy.`);
+                                const errorStreams: Stream[] = [];
+                                const dArrError = [
+                                    ...(Array.isArray((channel as any).streams) ? (channel as any).streams : []),
+                                    ...(Array.isArray((channel as any).dynamicDUrls) ? (channel as any).dynamicDUrls : [])
+                                ];
+
+                                for (const d of dArrError) {
+                                    if (d.url) {
+                                        // Se l'URL ha chiavi (key_id), ALLORA serve per forza il proxy -> Errore se manca MFP
+                                        if (d.url.includes('key_id=') && d.url.includes('key=')) {
+                                            errorStreams.push({
+                                                url: d.url,
+                                                name: '❌ [Missing Proxy]',
+                                                title: 'Serve MFP Config'
+                                            } as any);
+                                        } else {
+                                            // Se NON ha chiavi, proviamo a darlo diretto (comportamento originale)
+                                            // Questo rispetta "se link senza proxy allora lascia come funziona ora"
+                                            errorStreams.push({
+                                                url: d.url,
+                                                name: '🔴 LIVE', // Titolo standard
+                                                title: (channel as any).name || groupTitle
+                                            } as any);
+                                        }
+                                    }
+                                }
+                                return { streams: errorStreams };
+                            }
+                        }
+
                         const dArr = Array.isArray((channel as any).dynamicDUrls) ? (channel as any).dynamicDUrls : [];
                         console.log(`[DynamicStreams] Channel ${channel.id} dynamicDUrls count=${dArr.length}`);
                         if (dArr.length === 0) {
@@ -2368,7 +2560,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     // Only prepend the CLEAN non-MFP link (per-request, with headers)
                                     const reqObj: any = (global as any).lastExpressRequest;
                                     const clientIp = getClientIpFromReq(reqObj);
-                                    let vavooCleanResolved: { url: string; headers: Record<string,string> } | null = null;
+                                    let vavooCleanResolved: { url: string; headers: Record<string, string> } | null = null;
                                     try {
                                         const clean = await resolveVavooCleanUrl(vUrl, clientIp);
                                         if (clean && clean.url) {
@@ -2385,11 +2577,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     }
                                     // Iniezione Vavoo/MFP: incapsula SEMPRE l'URL vavoo.to originale (come in Live TV), senza extractor
                                     try {
-                                        if (mfpUrl && mfpPsw) {
-                                            const finalUrl2 = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(vUrl)}&api_password=${encodeURIComponent(mfpPsw)}`;
+                                        if (mfpUrl) {
+                                            const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                            const finalUrl2 = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(vUrl)}${passwordParam}`;
                                             const title3 = `🌐 ${alias} (Vavoo/MFP) [ITA]`;
                                             let insertAt = 0;
-                                            try { if (streams.length && /(\(Vavoo\))/i.test(streams[0].title)) insertAt = 1; } catch {}
+                                            try { if (streams.length && /(\(Vavoo\))/i.test(streams[0].title)) insertAt = 1; } catch { }
                                             try { streams.splice(insertAt, 0, { url: finalUrl2, title: title3 }); } catch { streams.push({ url: finalUrl2, title: title3 }); }
                                             vdbg('Alias Vavoo/MFP injected (direct proxy/hls on vUrl)', { alias, url: finalUrl2.substring(0, 140) });
                                         } else {
@@ -2419,7 +2612,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             url: e.url,
                             title: (e.title || 'Stream').replace(/^\s*\[(FAST|Player Esterno)\]\s*/i, '').trim()
                         }));
-                        
+
                         // === ESENZIONE P🐽D DAL CAP: estrai P🐽D PRIMA del tiering per priorità assoluta ===
                         const pdStreams: typeof entries = [];
                         const nonPdStreams: typeof entries = [];
@@ -2432,15 +2625,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         }
                         entries = nonPdStreams; // Applica CAP solo ai non-P🐽D
                         debugLog(`[DynamicStreams][ON-DEMAND] P🐽D separati: ${pdStreams.length} stream P🐽D, ${entries.length} altri`);
-                        
+
                         const maxConcRaw = parseInt(process.env.DYNAMIC_EXTRACTOR_CONC || '10', 10);
                         const CAP = Math.min(Math.max(1, isNaN(maxConcRaw) ? 10 : maxConcRaw), 50);
                         let extraFast: { url: string; title?: string }[] = [];
                         if (entries.length > CAP) {
                             // Tiered priority: tier1 strictly (it|ita|italy) first, then tier2 broader providers, then rest
                             const tier1Regex = /\b(it|ita|italy|italia)\b/i;
-                            // Aggiunto vavoo e p🐽d per evitare esclusione dal CAP
-                            const tier2Regex = /\b(italian|italiano|sky|tnt|amazon|dazn|eurosport|prime|bein|canal|sportitalia|now|rai|vavoo|strd|rbtv|rb77|spso|pd)\b|p🐽d/i;
+                            // Aggiunto vavoo per evitare esclusione dal CAP
+                            const tier2Regex = /\b(italian|italiano|sky|tnt|amazon|dazn|eurosport|prime|bein|canal|sportitalia|now|rai|vavoo)\b/i;
                             const tier1: typeof entries = [];
                             const tier2: typeof entries = [];
                             const others: typeof entries = [];
@@ -2458,39 +2651,47 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         const resolved: { url: string; title: string }[] = [];
                         const providerTitlesExt: string[] = [];
                         const itaRegex = /\b(it|ita|italy|italia|italian|italiano)$/i;
-                        
+
                         // NUOVA LOGICA: costruiamo direttamente URL /proxy/hls/manifest.m3u8?api_password=X&d=URL_DLHD
                         for (const d of entries) {
                             if (!d || !d.url) continue;
-                            
+
                             // SKIP placeholder Vavoo (verranno gestiti separatamente dalla logica Vavoo sopra)
                             if (d.url.startsWith('vavoo://')) {
                                 debugLog(`[DynamicStreams][ON-DEMAND] SKIP placeholder Vavoo: ${d.url}`);
                                 continue;
                             }
-                            
-                            let providerTitle = (d.title || 'Stream').trim().replace(/^\((.*)\)$/,'$1').trim();
+
+                            let providerTitle = (d.title || 'Stream').trim().replace(/^\((.*)\)$/, '$1').trim();
                             providerTitlesExt.push(providerTitle);
                             if (itaRegex.test(providerTitle) && !providerTitle.startsWith('🇮🇹')) providerTitle = `🇮🇹 ${providerTitle}`;
-                            
+
                             // Costruiamo direttamente il link proxy/hls (NIENTE extractor, NIENTE redirect)
-                            if (mfpUrl && mfpPsw) {
-                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(d.url)}`;
+                            if (mfpUrl) {
+                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?${passwordParam}d=${encodeURIComponent(d.url)}`;
                                 resolved.push({ url: finalUrl, title: providerTitle });
                                 debugLog(`[DynamicStreams][ON-DEMAND] Link DLHD diretto proxy/hls: ${providerTitle} -> ${finalUrl}`);
                             } else {
-                                // Niente MFP = skip (come richiesto per evitare link diretti DLHD)
-                                debugLog(`[DynamicStreams][ON-DEMAND] MFP mancante, skip link DLHD: ${providerTitle}`);
+                                // Niente MFP URL
+                                // Se è un canale PPV o l'URL è già un proxy, lo permettiamo diretto
+                                if (d.url.includes('/proxy/') || (channel as any).id.startsWith('ppv_')) {
+                                    resolved.push({ url: d.url, title: providerTitle });
+                                    debugLog(`[DynamicStreams][ON-DEMAND] MFP mancante, ma URL proxy/PPV consentito diretto: ${providerTitle}`);
+                                } else {
+                                    // Niente MFP = skip (come richiesto per evitare link diretti DLHD)
+                                    debugLog(`[DynamicStreams][ON-DEMAND] MFP mancante, skip link DLHD: ${providerTitle}`);
+                                }
                             }
                         }
-                        
+
                         resolved.sort((a, b) => {
                             const itaA = a.title.startsWith('🇮🇹') ? 0 : 1;
                             const itaB = b.title.startsWith('🇮🇹') ? 0 : 1;
                             if (itaA !== itaB) return itaA - itaB;
                             return a.title.localeCompare(b.title);
                         });
-                        
+
                         // === P🐽D: Processa SENZA CAP, aggiungi in TESTA (priorità assoluta) ===
                         const pdResolved: { url: string; title: string }[] = [];
                         for (const pd of pdStreams) {
@@ -2500,96 +2701,136 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 debugLog(`[P🐽D][ON-DEMAND] SKIP placeholder Vavoo: ${pd.url}`);
                                 continue;
                             }
-                            
+
                             let providerTitle = (pd.title || 'Stream').trim();
                             // Costruiamo direttamente il link proxy/hls (NIENTE extractor)
-                            if (mfpUrl && mfpPsw) {
-                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(pd.url)}`;
+                            if (mfpUrl) {
+                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?${passwordParam}d=${encodeURIComponent(pd.url)}`;
                                 pdResolved.push({ url: finalUrl, title: providerTitle });
                                 debugLog(`[P🐽D][ON-DEMAND] Link P🐽D diretto proxy/hls: ${providerTitle} -> ${finalUrl}`);
                             } else {
-                                debugLog(`[P🐽D][ON-DEMAND] MFP mancante, skip link P🐽D: ${providerTitle}`);
+                                debugLog(`[P🐽D][ON-DEMAND] MFP URL mancante, skip link P🐽D: ${providerTitle}`);
                             }
                         }
                         // Aggiungi P🐽D in TESTA (unshift = priorità massima)
                         for (const pd of pdResolved) streams.unshift(pd);
                         debugLog(`[P🐽D][ON-DEMAND] Aggiunti ${pdResolved.length} stream P🐽D in TESTA (esenzione CAP)`);
-                        
+
                         // Aggiungiamo tutti i link risolti DLHD (già avvolti con proxy/hls)
                         for (const r of resolved) streams.push(r);
-                        
+
                         // === Freeshot (iniezione DOPO DLHD resolved, PRIMA dei leftover) ===
                         try {
-                            const { resolveFreeshotForChannel } = await import('./extractors/freeshotRuntime');
-                            const fr = await resolveFreeshotForChannel({ id: (channel as any).id, name: (channel as any).name, epgChannelIds: (channel as any).epgChannelIds, extraTexts: providerTitlesExt });
-                            if (fr && fr.url && !fr.error) {
-                                const freeName = (fr as any).displayName || (channel as any).name || 'Canale';
+                            const { resolveFreeshotForChannel, getFreeshotCode } = await import('./extractors/freeshotRuntime');
+                            const reqObj: any = (global as any).lastExpressRequest;
+                            const clientIp = getClientIpFromReq(reqObj);
+
+                            let frUrl: string | undefined;
+                            let frName = (channel as any).name || 'Canale';
+                            let frError: string | undefined;
+
+                            // Se abbiamo MFP, usiamo la risoluzione lato proxy (Server-Side Resolution)
+                            // Questo risolve il problema dell'IP mismatch: il proxy genera il token e lo usa.
+                            if (mfpUrl) {
+                                const match = getFreeshotCode({ id: (channel as any).id, name: (channel as any).name, epgChannelIds: (channel as any).epgChannelIds, extraTexts: providerTitlesExt });
+                                if (match) {
+                                    const { code } = match;
+                                    // Costruiamo l'URL che il proxy dovrà risolvere
+                                    const popcdnUrl = `https://popcdn.day/go.php?stream=${encodeURIComponent(code)}`;
+
+                                    // Aggiungiamo parametro filename fittizio per far generare un URL .m3u8 al formatMediaFlowUrl
+                                    const popcdnUrlWithFilename = `${popcdnUrl}&filename=manifest.m3u8`;
+
+                                    // Avvolgiamo in MFP
+                                    frUrl = formatMediaFlowUrl(popcdnUrlWithFilename, mfpUrl, mfpPsw || '');
+
+                                    // Forziamo endpoint HLS per compatibilità player
+                                    if (frUrl.includes('/proxy/stream/')) {
+                                        frUrl = frUrl.replace('/proxy/stream/', '/proxy/hls/');
+                                    }
+
+                                    debugLog(`Freeshot (Proxy-Side) aggiunto per ${frName}: ${frUrl}`);
+                                }
+                            } else {
+                                // Fallback: risoluzione locale (funziona solo se Addon e Player sono sullo stesso IP)
+                                const fr = await resolveFreeshotForChannel({ id: (channel as any).id, name: (channel as any).name, epgChannelIds: (channel as any).epgChannelIds, extraTexts: providerTitlesExt }, clientIp || undefined);
+                                if (fr && fr.url && !fr.error) {
+                                    frUrl = fr.url;
+                                    frName = (fr as any).displayName || frName;
+                                    debugLog(`Freeshot (Local) aggiunto per ${frName}: ${frUrl}`);
+                                } else if (fr && fr.error) {
+                                    frError = fr.error;
+                                }
+                            }
+
+                            if (frUrl) {
                                 streams.push({
-                                    url: fr.url,
-                                    title: `[🏟 Free] ${freeName} [ITA]`
+                                    url: frUrl,
+                                    title: `[🏟 Free] ${frName} [ITA]`
                                 });
-                                debugLog(`Freeshot aggiunto per ${freeName}: ${fr.url}`);
-                            } else if (fr && fr.error) {
-                                debugLog(`Freeshot errore ${channel.name}: ${fr.error}`);
+                            } else if (frError) {
+                                debugLog(`Freeshot errore ${channel.name}: ${frError}`);
                             }
                         } catch (e) {
                             debugLog(`Freeshot import/fetch fallito: ${e}`);
                         }
-                        
+
                         // === INJECTION GENERICO staticUrlMpd (come Vavoo) - Posizione #4 dopo Freeshot ===
                         try {
                             const mpdInjectedChannels = new Set<string>(); // Track per evitare duplicati
-                            
+
                             // Loop su TUTTI i canali statici con staticUrlMpd
                             for (const staticCh of staticBaseChannels) {
                                 if (!staticCh || !staticCh.staticUrlMpd) continue;
                                 if (mpdInjectedChannels.has(staticCh.id)) continue; // Skip già iniettati
-                                
+
                                 const aliases = staticCh.vavooNames || [staticCh.name];
-                                
+
                                 // Match fuzzy (come Vavoo)
                                 let matched = false;
                                 for (const alias of aliases) {
                                     if (matched) break;
                                     const normalizedAlias = normAlias(alias);
-                                    
+
                                     const matches = providerTitlesExt.some((pt: string) => {
                                         const normalizedProvider = normAlias(pt);
                                         return normalizedProvider.includes(normalizedAlias) || normalizedAlias.includes(normalizedProvider);
                                     });
-                                    
+
                                     if (matches) {
                                         // TROVATO! Inietta MPD (legge SEMPRE da staticBaseChannels fresh)
                                         try {
                                             const decodedUrl = decodeStaticUrl(staticCh.staticUrlMpd);
                                             let finalUrl = decodedUrl;
                                             let proxyUsed = false;
-                                            
-                                            if (mfpUrl && mfpPsw) {
+
+                                            if (mfpUrl) {
                                                 const urlParts = decodedUrl.split('&');
                                                 const baseUrl = urlParts[0];
                                                 const additionalParams = urlParts.slice(1);
-                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
+                                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
                                                 for (const param of additionalParams) if (param) finalUrl += `&${param}`;
                                                 proxyUsed = true;
                                             }
-                                            
+
                                             const title = `${proxyUsed ? '' : '[❌Proxy]'}[🎬MPD] ${staticCh.name} [ITA]`;
-                                            
+
                                             // Inserisce in posizione #4: dopo Vavoo Clean, D_CF, Freeshot
                                             let insertAt = 0;
-                                            try { 
+                                            try {
                                                 while (insertAt < streams.length && /(\(Vavoo🔓\))/i.test(streams[insertAt].title)) insertAt++;
                                                 while (insertAt < streams.length && /🇮🇹🔄/i.test(streams[insertAt].title)) insertAt++;
                                                 while (insertAt < streams.length && /\[🏟\s*Free\]/i.test(streams[insertAt].title)) insertAt++;
-                                            } catch {}
-                                            
-                                            try { 
-                                                streams.splice(insertAt, 0, { url: finalUrl, title }); 
-                                            } catch { 
-                                                streams.push({ url: finalUrl, title }); 
+                                            } catch { }
+
+                                            try {
+                                                streams.splice(insertAt, 0, { url: finalUrl, title });
+                                            } catch {
+                                                streams.push({ url: finalUrl, title });
                                             }
-                                            
+
                                             mpdInjectedChannels.add(staticCh.id);
                                             matched = true;
                                             console.log(`✅ [MPD] Injected ${staticCh.name} (matched alias: ${alias}) for dynamic event`);
@@ -2599,7 +2840,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     }
                                 }
                             }
-                            
+
                             if (mpdInjectedChannels.size > 0) {
                                 console.log(`✅ [MPD] Total injected: ${mpdInjectedChannels.size} channels with staticUrlMpd`);
                             }
@@ -2610,57 +2851,58 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         // === INJECTION staticUrlMpd2 (RM - 🎬MPD2) - Posizione #5 dopo MPD ===
                         try {
                             const mpd2InjectedChannels = new Set<string>();
-                            
+
                             // Loop su TUTTI i canali statici con staticUrlMpd2
                             for (const staticCh of staticBaseChannels) {
                                 if (!staticCh || !staticCh.staticUrlMpd2) continue;
                                 if (mpd2InjectedChannels.has(staticCh.id)) continue;
-                                
+
                                 const aliases = staticCh.vavooNames || [staticCh.name];
-                                
+
                                 // Match fuzzy (come MPD)
                                 let matched = false;
                                 for (const alias of aliases) {
                                     if (matched) break;
                                     const normalizedAlias = normAlias(alias);
-                                    
+
                                     const matches = providerTitlesExt.some((pt: string) => {
                                         const normalizedProvider = normAlias(pt);
                                         return normalizedProvider.includes(normalizedAlias) || normalizedAlias.includes(normalizedProvider);
                                     });
-                                    
+
                                     if (matches) {
                                         try {
                                             const decodedUrl = decodeStaticUrl(staticCh.staticUrlMpd2);
                                             let finalUrl = decodedUrl;
                                             let proxyUsed = false;
-                                            
-                                            if (mfpUrl && mfpPsw) {
+
+                                            if (mfpUrl) {
                                                 const urlParts = decodedUrl.split('&');
                                                 const baseUrl = urlParts[0];
                                                 const additionalParams = urlParts.slice(1);
-                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
+                                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
                                                 for (const param of additionalParams) if (param) finalUrl += `&${param}`;
                                                 proxyUsed = true;
                                             }
-                                            
+
                                             const title = `${proxyUsed ? '' : '[❌Proxy]'}[🎬MPD2] ${staticCh.name} [ITA]`;
-                                            
+
                                             // Inserisce in posizione #5: dopo MPD
                                             let insertAt = 0;
-                                            try { 
+                                            try {
                                                 while (insertAt < streams.length && /(\(Vavoo🔓\))/i.test(streams[insertAt].title)) insertAt++;
                                                 while (insertAt < streams.length && /🇮🇹🔄/i.test(streams[insertAt].title)) insertAt++;
                                                 while (insertAt < streams.length && /\[🏟\s*Free\]/i.test(streams[insertAt].title)) insertAt++;
                                                 while (insertAt < streams.length && /\[🎬MPD\]/i.test(streams[insertAt].title)) insertAt++;
-                                            } catch {}
-                                            
-                                            try { 
-                                                streams.splice(insertAt, 0, { url: finalUrl, title }); 
-                                            } catch { 
-                                                streams.push({ url: finalUrl, title }); 
+                                            } catch { }
+
+                                            try {
+                                                streams.splice(insertAt, 0, { url: finalUrl, title });
+                                            } catch {
+                                                streams.push({ url: finalUrl, title });
                                             }
-                                            
+
                                             mpd2InjectedChannels.add(staticCh.id);
                                             matched = true;
                                             console.log(`✅ [MPD2] Injected ${staticCh.name} (matched alias: ${alias}) - RM source`);
@@ -2670,17 +2912,158 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     }
                                 }
                             }
-                            
+
                             if (mpd2InjectedChannels.size > 0) {
                                 console.log(`✅ [MPD2] Total injected: ${mpd2InjectedChannels.size} channels with staticUrlMpd2 (RM)`);
                             }
                         } catch (e) {
                             console.error('[MPD2] Injection error:', (e as any)?.message || e);
                         }
-                        
+
+                        // === INJECTION staticUrlMpdz ( - 🎬MPDz) - Posizione #6 dopo MPD2 ===
+                        try {
+                            const mpdzInjectedChannels = new Set<string>();
+
+                            for (const staticCh of staticBaseChannels) {
+                                if (!staticCh || !(staticCh as any).staticUrlMpdz) continue;
+                                if (mpdzInjectedChannels.has(staticCh.id)) continue;
+
+                                const aliases = staticCh.vavooNames || [staticCh.name];
+
+                                let matched = false;
+                                for (const alias of aliases) {
+                                    if (matched) break;
+                                    const normalizedAlias = normAlias(alias);
+
+                                    const matches = providerTitlesExt.some((pt: string) => {
+                                        const normalizedProvider = normAlias(pt);
+                                        return normalizedProvider.includes(normalizedAlias) || normalizedAlias.includes(normalizedProvider);
+                                    });
+
+                                    if (matches) {
+                                        try {
+                                            const decodedUrl = decodeStaticUrl((staticCh as any).staticUrlMpdz);
+                                            let finalUrl = decodedUrl;
+                                            let proxyUsed = false;
+
+                                            if (mfpUrl) {
+                                                const urlParts = decodedUrl.split('&');
+                                                const baseUrl = urlParts[0];
+                                                const additionalParams = urlParts.slice(1);
+                                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+                                                for (const param of additionalParams) if (param) finalUrl += `&${param}`;
+                                                proxyUsed = true;
+                                            }
+
+                                            const title = `${proxyUsed ? '' : '[❌Proxy]'}[🎬MPDz] ${staticCh.name} [ITA]`;
+
+                                            let insertAt = 0;
+                                            try {
+                                                while (insertAt < streams.length && /(\(Vavoo🔓\))/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /🇮🇹🔄/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🏟\s*Free\]/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🎬MPD\]/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🎬MPD2\]/i.test(streams[insertAt].title)) insertAt++;
+                                            } catch { }
+
+                                            try {
+                                                streams.splice(insertAt, 0, { url: finalUrl, title });
+                                            } catch {
+                                                streams.push({ url: finalUrl, title });
+                                            }
+
+                                            mpdzInjectedChannels.add(staticCh.id);
+                                            matched = true;
+                                            console.log(`✅ [MPDz] Injected ${staticCh.name} (matched alias: ${alias}) -  source`);
+                                        } catch (injectErr) {
+                                            debugLog(`[MPDz] Injection failed for ${staticCh.name}:`, injectErr);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (mpdzInjectedChannels.size > 0) {
+                                console.log(`✅ [MPDz] Total injected: ${mpdzInjectedChannels.size} channels with staticUrlMpdz ()`);
+                            }
+                        } catch (e) {
+                            console.error('[MPDz] Injection error:', (e as any)?.message || e);
+                        }
+
+                        // === INJECTION staticUrlMpdx ( - 🎬MPDx) - Posizione #7 dopo MPDz ===
+                        try {
+                            const mpdxInjectedChannels = new Set<string>();
+
+                            for (const staticCh of staticBaseChannels) {
+                                if (!staticCh || !(staticCh as any).staticUrlMpdx) continue;
+                                if (mpdxInjectedChannels.has(staticCh.id)) continue;
+
+                                const aliases = staticCh.vavooNames || [staticCh.name];
+
+                                let matched = false;
+                                for (const alias of aliases) {
+                                    if (matched) break;
+                                    const normalizedAlias = normAlias(alias);
+
+                                    const matches = providerTitlesExt.some((pt: string) => {
+                                        const normalizedProvider = normAlias(pt);
+                                        return normalizedProvider.includes(normalizedAlias) || normalizedAlias.includes(normalizedProvider);
+                                    });
+
+                                    if (matches) {
+                                        try {
+                                            const decodedUrl = decodeStaticUrl((staticCh as any).staticUrlMpdx);
+                                            let finalUrl = decodedUrl;
+                                            let proxyUsed = false;
+
+                                            if (mfpUrl) {
+                                                const urlParts = decodedUrl.split('&');
+                                                const baseUrl = urlParts[0];
+                                                const additionalParams = urlParts.slice(1);
+                                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                                finalUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+                                                for (const param of additionalParams) if (param) finalUrl += `&${param}`;
+                                                proxyUsed = true;
+                                            }
+
+                                            const title = `${proxyUsed ? '' : '[❌Proxy]'}[🎬MPDx] ${staticCh.name} [ITA]`;
+
+                                            let insertAt = 0;
+                                            try {
+                                                while (insertAt < streams.length && /(\(Vavoo🔓\))/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /🇮🇹🔄/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🏟\s*Free\]/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🎬MPD\]/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🎬MPD2\]/i.test(streams[insertAt].title)) insertAt++;
+                                                while (insertAt < streams.length && /\[🎬MPDz\]/i.test(streams[insertAt].title)) insertAt++;
+                                            } catch { }
+
+                                            try {
+                                                streams.splice(insertAt, 0, { url: finalUrl, title });
+                                            } catch {
+                                                streams.push({ url: finalUrl, title });
+                                            }
+
+                                            mpdxInjectedChannels.add(staticCh.id);
+                                            matched = true;
+                                            console.log(`✅ [MPDx] Injected ${staticCh.name} (matched alias: ${alias}) -  source`);
+                                        } catch (injectErr) {
+                                            debugLog(`[MPDx] Injection failed for ${staticCh.name}:`, injectErr);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (mpdxInjectedChannels.size > 0) {
+                                console.log(`✅ [MPDx] Total injected: ${mpdxInjectedChannels.size} channels with staticUrlMpdx ()`);
+                            }
+                        } catch (e) {
+                            console.error('[MPDx] Injection error:', (e as any)?.message || e);
+                        }
+
                         // (Normalizzazione CF rimossa: ora pubblichiamo link avvolti con extractor on-demand)
                         // Append leftover entries (beyond CAP) con stessa logica on-demand (proxy/hls diretto)
-            if (extraFast.length && mfpUrl && mfpPsw) {
+                        if (extraFast.length && mfpUrl) {
                             const leftoversToShow = CAP === 1 ? extraFast.slice(0, 1) : extraFast;
                             let appended = 0;
                             for (const e of leftoversToShow) {
@@ -2690,7 +3073,8 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 t = t.replace(/^\s*\[(FAST|Player Esterno)\]\s*/i, '').trim();
                                 // NON aggiungiamo più [Player Esterno]: tutti i daddy ora usano proxy/hls
                                 // Costruiamo direttamente proxy/hls (NIENTE extractor)
-                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(e.url)}`;
+                                const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                const finalUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?${passwordParam}d=${encodeURIComponent(e.url)}`;
                                 streams.push({ url: finalUrl, title: t });
                                 appended++;
                             }
@@ -2698,18 +3082,18 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         }
                         debugLog(`[DynamicStreams][ON-DEMAND] Pubblicati ${resolved.length}/${entries.length} link avvolti MFP in ${Date.now() - startDyn}ms`);
                         // Filtro minimale senza MFP: rimuovi solo gli URL diretti dlhd.dad (duplicati CF restano)
-                        if (!(mfpUrl && mfpPsw)) {
+                        if (!mfpUrl) {
                             const beforeExt = streams.length;
                             for (let i = streams.length - 1; i >= 0; i--) {
-                                if (/^https?:\/\/dlhd\.dad\/watch\.php\?id=\d+/i.test(streams[i].url)) streams.splice(i,1);
+                                if (/^https?:\/\/dlhd\.dad\/watch\.php\?id=\d+/i.test(streams[i].url)) streams.splice(i, 1);
                             }
                             if (beforeExt !== streams.length) debugLog(`[DynamicStreams][EXTRACTOR][NO_MFP] rimossi ${beforeExt - streams.length} dlhd.dad, rimasti=${streams.length}`);
                         }
                         // === GDPLAYER injection for dynamic (EXTRACTOR) dopo PD/Vavoo ===
                         try {
-                            const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||''));
-                            if (enableGdPlayer && mfpUrl && mfpPsw) { // richiede MFP
-                                const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                            const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || ''));
+                            if (enableGdPlayer && mfpUrl) { // richiede MFP URL
+                                const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                                 // Popola extraTexts con providerTitles extractor se mancante
                                 if (!(channel as any).extraTexts || !Array.isArray((channel as any).extraTexts)) {
                                     (channel as any).extraTexts = providerTitlesExt;
@@ -2731,11 +3115,11 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                 const t = streams[insertAt].title || '';
                                                 if (/^\[P🐽D]/i.test(t) || /Vavoo/i.test(t)) insertAt++; else break;
                                             }
-                                            streams.splice(insertAt,0,{ url: finalUrl, title });
+                                            streams.splice(insertAt, 0, { url: finalUrl, title });
                                             // Sintesi D_CF dinamico dal code GD se non presente (richiede GDPLAYER_ENABLE per GD + DCF_ENABLE per D_CF)
                                             try {
-                                                const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||''));
-                                                const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE||''));
+                                                const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || ''));
+                                                const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE || ''));
                                                 if (enableGdPlayer && enableDcf && gd.code && !(channel as any).staticUrlD_CF && /^\d+$/.test(gd.code)) {
                                                     // Costruisci addonBaseUrl dalla richiesta corrente
                                                     let addonBaseUrl = '';
@@ -2746,7 +3130,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                             const host = lastReq.get('host') || lastReq.headers?.host || '';
                                                             if (host) addonBaseUrl = `${protocol}://${host}`;
                                                         }
-                                                    } catch {}
+                                                    } catch { }
                                                     (channel as any).staticUrlD_CF = buildCfProxyFromId(gd.code, addonBaseUrl);
                                                     debugLog(`[DynamicStreams][D_CF] sintetizzato da GD code=${gd.code} base=${addonBaseUrl} (EXTRACTOR)`);
                                                 }
@@ -2755,10 +3139,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                 console.error(`[DLHD][FAIL][SYNTHESIS-GD-EXTRACTOR] Canale: ${channel.name || 'N/A'} | GD code: ${gd.code || 'N/A'} | Errore: ${errorMsg}`);
                                             }
                                         }
-                                    } catch {/* silent */}
+                                    } catch {/* silent */ }
                                 }
                             }
-                        } catch {}
+                        } catch { }
                         // === ORDINAMENTO FINALE STREAM DINAMICI (EXTRACTOR) ===
                         try {
                             if (streams.length > 1) {
@@ -2773,9 +3157,9 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         // Dynamic channel ma senza dynamicDUrls -> placeholder stream
                         // Prova comunque GD per sintetizzare eventuale D_CF (richiede GDPLAYER_ENABLE per GD + DCF_ENABLE per D_CF)
                         try {
-                            const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE||''));
-                            const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE||''));
-                            if (enableGdPlayer && enableDcf && mfpUrl && mfpPsw) {
+                            const enableGdPlayer = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_ENABLE || ''));
+                            const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE || ''));
+                            if (enableGdPlayer && enableDcf && mfpUrl) {
                                 const gd = await resolveGdplayerForChannel(channel as any, { mfpUrl: mfpUrl, mfpPassword: mfpPsw });
                                 if (gd && gd.code && !(channel as any).staticUrlD_CF && /^\d+$/.test(gd.code)) {
                                     // Costruisci addonBaseUrl dalla richiesta corrente
@@ -2787,7 +3171,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                             const host = lastReq.get('host') || lastReq.headers?.host || '';
                                             if (host) addonBaseUrl = `${protocol}://${host}`;
                                         }
-                                    } catch {}
+                                    } catch { }
                                     (channel as any).staticUrlD_CF = buildCfProxyFromId(gd.code, addonBaseUrl);
                                     debugLog(`[DynamicStreams][D_CF] sintetizzato da GD code=${gd.code} base=${addonBaseUrl} (PLACEHOLDER)`);
                                 }
@@ -2807,7 +3191,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 if (pdUrl && !streams.some(s => s.url === pdUrl)) {
                                     const pdStream = { url: pdUrl, title: `[P🐽D] ${channel.name}` };
                                     // Se il primo è già un GD, inserisci dopo, altrimenti in testa
-                                    if (streams.length && /^\[Gd\]/i.test(streams[0].title)) streams.splice(1,0,pdStream); else streams.unshift(pdStream);
+                                    if (streams.length && /^\[Gd\]/i.test(streams[0].title)) streams.splice(1, 0, pdStream); else streams.unshift(pdStream);
                                     debugLog(`Aggiunto pdUrlF Direct: ${pdUrl}`);
                                 }
                             } catch (e) {
@@ -2817,39 +3201,76 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         if ((channel as any).staticUrlF) {
                             const originalF = (channel as any).staticUrlF;
                             const nameLower = (channel.name || '').toLowerCase().trim();
-                            const raiMpdSet = new Set(['rai 1','rai 2','rai 3']); // Solo questi devono passare da proxy MPD
+                            const raiMpdSet = new Set(['']); // Solo questi devono passare da proxy MPD before 'rai 1','rai 2','rai 3'
                             // Altri canali RAI (4,5,Movie,Premium, ecc.) restano DIRECT (niente proxy HLS come richiesto)
                             let finalFUrl = originalF;
-                            if (mfpUrl && mfpPsw && raiMpdSet.has(nameLower)) {
+                            if (mfpUrl && raiMpdSet.has(nameLower)) {
                                 if (!originalF.startsWith(mfpUrl)) {
-                                    finalFUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(originalF)}`;
+                                    const passwordParamRai = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                                    finalFUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParamRai}d=${encodeURIComponent(originalF)}`;
                                 }
                             }
                             streams.push({
                                 url: finalFUrl,
                                 title: `[🌍dTV] ${channel.name} [ITA]`
                             });
-                            debugLog(`Aggiunto staticUrlF ${finalFUrl === originalF ? 'Direct' : 'Proxy(MPD)' }: ${finalFUrl}`);
+                            debugLog(`Aggiunto staticUrlF ${finalFUrl === originalF ? 'Direct' : 'Proxy(MPD)'}: ${finalFUrl}`);
                         }
 
                         // --- FREESHOT per canali statici ---
                         try {
-                            const { resolveFreeshotForChannel } = await import('./extractors/freeshotRuntime');
-                            const fr = await resolveFreeshotForChannel({ 
-                                id: (channel as any).id, 
-                                name: (channel as any).name, 
-                                epgChannelIds: (channel as any).epgChannelIds, 
-                                extraTexts: [] // Canali statici non hanno providerTitlesExt
-                            });
-                            if (fr && fr.url && !fr.error) {
-                                const freeName = (fr as any).displayName || (channel as any).name || 'Canale';
-                                streams.push({
-                                    url: fr.url,
-                                    title: `[🏟 Free] ${freeName} [ITA]`
+                            const { resolveFreeshotForChannel, getFreeshotCode } = await import('./extractors/freeshotRuntime');
+                            const reqObj: any = (global as any).lastExpressRequest;
+                            const clientIp = getClientIpFromReq(reqObj);
+
+                            let frUrl: string | undefined;
+                            let frName = (channel as any).name || 'Canale';
+                            let frError: string | undefined;
+
+                            // Proxy-Side Resolution (se MFP attivo)
+                            if (mfpUrl) {
+                                const match = getFreeshotCode({
+                                    id: (channel as any).id,
+                                    name: (channel as any).name,
+                                    epgChannelIds: (channel as any).epgChannelIds,
+                                    extraTexts: []
                                 });
-                                debugLog(`Freeshot aggiunto per canale statico ${freeName}: ${fr.url}`);
-                            } else if (fr && fr.error) {
-                                debugLog(`Freeshot errore su canale statico ${channel.name}: ${fr.error}`);
+                                if (match) {
+                                    const { code } = match;
+                                    const popcdnUrl = `https://popcdn.day/go.php?stream=${encodeURIComponent(code)}`;
+                                    const popcdnUrlWithFilename = `${popcdnUrl}&filename=manifest.m3u8`;
+                                    frUrl = formatMediaFlowUrl(popcdnUrlWithFilename, mfpUrl, mfpPsw || '');
+                                    if (frUrl.includes('/proxy/stream/')) {
+                                        frUrl = frUrl.replace('/proxy/stream/', '/proxy/hls/');
+                                    }
+                                    debugLog(`Freeshot (Proxy-Side Static) aggiunto per ${frName}: ${frUrl}`);
+                                }
+                            }
+
+                            // Fallback Local Resolution (se MFP assente o getFreeshotCode fallito)
+                            if (!frUrl) {
+                                const fr = await resolveFreeshotForChannel({
+                                    id: (channel as any).id,
+                                    name: (channel as any).name,
+                                    epgChannelIds: (channel as any).epgChannelIds,
+                                    extraTexts: []
+                                }, clientIp || undefined);
+
+                                if (fr && fr.url && !fr.error) {
+                                    frName = (fr as any).displayName || frName;
+                                    frUrl = fr.url;
+                                } else if (fr && fr.error) {
+                                    frError = fr.error;
+                                }
+                            }
+
+                            if (frUrl) {
+                                streams.push({
+                                    url: frUrl,
+                                    title: `[🏟 Free] ${frName} [ITA]`
+                                });
+                            } else if (frError) {
+                                debugLog(`Freeshot errore su canale statico ${channel.name}: ${frError}`);
                             }
                         } catch (e) {
                             debugLog('Freeshot import/fetch fallito per canale statico', (e as any)?.message || e);
@@ -2864,14 +3285,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         console.log(`🔧 [staticUrl] mfpUrl: ${mfpUrl}`);
                         console.log(`🔧 [staticUrl] mfpPsw: ${mfpPsw ? '***' : 'NOT SET'}`);
 
-                        if (mfpUrl && mfpPsw) {
+                        if (mfpUrl) {
                             // Parse l'URL decodificato per separare l'URL base dai parametri
                             const urlParts = decodedUrl.split('&');
                             const baseUrl = urlParts[0]; // Primo elemento è l'URL base
                             const additionalParams = urlParts.slice(1); // Resto sono i parametri aggiuntivi
 
                             // Costruisci l'URL del proxy con l'URL base nel parametro d
-                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
 
                             // Aggiungi i parametri aggiuntivi (key_id, key, etc.) direttamente all'URL del proxy
                             for (const param of additionalParams) {
@@ -2898,10 +3320,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 const t = streams[insertAt].title || '';
                                 if (/^\[P🐽D]/i.test(t) || /Vavoo/i.test(t) || /\[🌍dTV]/i.test(t)) insertAt++; else break;
                             }
-                            streams.splice(insertAt,0,gdStaticPending);
-                            const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG||'1'));
+                            streams.splice(insertAt, 0, gdStaticPending);
+                            const logEnabled = /^(1|true|on)$/i.test(String(process?.env?.GDPLAYER_LOG || '1'));
                             // (GD static inserted)
-                        } catch {}
+                        } catch { }
                     }
                     // staticUrl2 (solo se enableMpd è attivo)
                     if ((channel as any).staticUrl2 && mpdEnabled) {
@@ -2911,14 +3333,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         console.log(`🔧 [staticUrl2] mfpUrl: ${mfpUrl}`);
                         console.log(`🔧 [staticUrl2] mfpPsw: ${mfpPsw ? '***' : 'NOT SET'}`);
 
-                        if (mfpUrl && mfpPsw) {
+                        if (mfpUrl) {
                             // Parse l'URL decodificato per separare l'URL base dai parametri
                             const urlParts = decodedUrl.split('&');
                             const baseUrl = urlParts[0]; // Primo elemento è l'URL base
                             const additionalParams = urlParts.slice(1); // Resto sono i parametri aggiuntivi
 
                             // Costruisci l'URL del proxy con l'URL base nel parametro d
-                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
 
                             // Aggiungi i parametri aggiuntivi (key_id, key, etc.) direttamente all'URL del proxy
                             for (const param of additionalParams) {
@@ -2947,14 +3370,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         console.log(`🔧 [staticUrlMpd] mfpUrl: ${mfpUrl}`);
                         console.log(`🔧 [staticUrlMpd] mfpPsw: ${mfpPsw ? '***' : 'NOT SET'}`);
 
-                        if (mfpUrl && mfpPsw) {
+                        if (mfpUrl) {
                             // Parse l'URL decodificato per separare l'URL base dai parametri
                             const urlParts = decodedUrl.split('&');
                             const baseUrl = urlParts[0]; // Primo elemento è l'URL base
                             const additionalParams = urlParts.slice(1); // Resto sono i parametri aggiuntivi
 
                             // Costruisci l'URL del proxy con l'URL base nel parametro d
-                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
 
                             // Aggiungi i parametri aggiuntivi (key_id, key, etc.) direttamente all'URL del proxy
                             for (const param of additionalParams) {
@@ -2980,20 +3404,21 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         console.log(`🔧 [staticUrlMpd2] Raw URL: ${(channel as any).staticUrlMpd2}`);
                         const decodedUrl2 = decodeStaticUrl((channel as any).staticUrlMpd2);
                         console.log(`🔧 [staticUrlMpd2] Decoded URL: ${decodedUrl2.substring(0, 100)}...`);
-                        
-                        if (mfpUrl && mfpPsw) {
+
+                        if (mfpUrl) {
                             const urlParts = decodedUrl2.split('&');
                             const baseUrl = urlParts[0];
                             const additionalParams = urlParts.slice(1);
-                            
-                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent(baseUrl)}`;
-                            
+
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+
                             for (const param of additionalParams) {
                                 if (param) {
                                     proxyUrl += `&${param}`;
                                 }
                             }
-                            
+
                             streams.push({
                                 url: proxyUrl,
                                 title: `[🎬MPD2] ${channel.name} [ITA]`
@@ -3004,24 +3429,80 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         }
                     }
 
+                    // staticUrlMpdz ()
+                    if ((channel as any).staticUrlMpdz) {
+                        const decodedUrlz = decodeStaticUrl((channel as any).staticUrlMpdz);
+
+                        if (mfpUrl) {
+                            const urlParts = decodedUrlz.split('&');
+                            const baseUrl = urlParts[0];
+                            const additionalParams = urlParts.slice(1);
+
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+
+                            for (const param of additionalParams) {
+                                if (param) {
+                                    proxyUrl += `&${param}`;
+                                }
+                            }
+
+                            streams.push({
+                                url: proxyUrl,
+                                title: `[🎬MPDz] ${channel.name} [ITA]`
+                            });
+                            debugLog(`Aggiunto staticUrlMpdz Proxy (MFP): ${proxyUrl.substring(0, 150)}...`);
+                        } else {
+                            debugLog(`(NASCONDI) staticUrlMpdz Direct senza MFP: ${decodedUrlz}`);
+                        }
+                    }
+
+                    // staticUrlMpdx ()
+                    if ((channel as any).staticUrlMpdx) {
+                        const decodedUrlx = decodeStaticUrl((channel as any).staticUrlMpdx);
+
+                        if (mfpUrl) {
+                            const urlParts = decodedUrlx.split('&');
+                            const baseUrl = urlParts[0];
+                            const additionalParams = urlParts.slice(1);
+
+                            const passwordParam = mfpPsw ? `api_password=${encodeURIComponent(mfpPsw)}&` : '';
+                            let proxyUrl = `${mfpUrl}/proxy/mpd/manifest.m3u8?${passwordParam}d=${encodeURIComponent(baseUrl)}`;
+
+                            for (const param of additionalParams) {
+                                if (param) {
+                                    proxyUrl += `&${param}`;
+                                }
+                            }
+
+                            streams.push({
+                                url: proxyUrl,
+                                title: `[🎬MPDx] ${channel.name} [ITA]`
+                            });
+                            debugLog(`Aggiunto staticUrlMpdx Proxy (MFP): ${proxyUrl.substring(0, 150)}...`);
+                        } else {
+                            debugLog(`(NASCONDI) staticUrlMpdx Direct senza MFP: ${decodedUrlx}`);
+                        }
+                    }
+
                     // staticUrlD / staticUrlD_CF
                     // Richiesta: i canali D_CF devono essere SEMPRE visibili anche senza MFP (perché già proxy CF pronto)
                     // Formato titolo aggiornato: 🇮🇹🔄 <Nome>  (manteniamo [ITA] finale per coerenza)
                     // IMPORTANTE: Controllato da DCF_ENABLE (separato da GDPLAYER_ENABLE)
-                    const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE||'1'));
-                    
+                    const enableDcf = /^(1|true|on)$/i.test(String(process?.env?.DCF_ENABLE || '1'));
+
                     // SINTESI D_CF PER DINAMICI: Se dinamico senza staticUrlD_CF, crea D_CF per TUTTI i link DLHD italiani presenti
                     if ((channel as any)._dynamic && enableDcf && !(channel as any).staticUrlD_CF && streams.length) {
                         try {
                             // Per canali dinamici, cerca PRIMA del wrapping MFP negli URL originali dynamicDUrls
                             const dlhdIds = new Set<string>();
                             const dlhdIdToTitle = new Map<string, string>(); // Mappa ID -> Nome provider originale
-                            
+
                             // Metodo 1: Cerca in dynamicDUrls (URL originali PRIMA del wrapping)
                             if ((channel as any).dynamicDUrls && Array.isArray((channel as any).dynamicDUrls)) {
                                 for (const d of (channel as any).dynamicDUrls) {
                                     if (!d || !d.url) continue;
-                                    
+
                                     // Cerca link DLHD diretti: https://dlhd.dad/watch.php?id=XXX
                                     const directMatch = d.url.match(/^https?:\/\/dlhd\.dad\/watch\.php\?id=(\d+)/i);
                                     if (directMatch && directMatch[1]) {
@@ -3039,7 +3520,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     }
                                 }
                             }
-                            
+
                             // Metodo 2 (fallback): Cerca negli stream già wrappati (meno affidabile)
                             if (dlhdIds.size === 0) {
                                 const dlhdStreams = streams.filter(s => /^🇮🇹(?!🔄)/.test(s.title || '') && /^https?:\/\/.*proxy\/hls\/manifest\.m3u8.*[?&]d=.*dlhd\.dad.*id[=%](\d+)/i.test(s.url));
@@ -3055,7 +3536,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     }
                                 }
                             }
-                            
+
                             if (dlhdIds.size > 0) {
                                 // Costruisci addonBaseUrl dalla richiesta corrente
                                 let addonBaseUrl = '';
@@ -3066,10 +3547,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         const host = lastReq.get('host') || lastReq.headers?.host || '';
                                         if (host) addonBaseUrl = `${protocol}://${host}`;
                                     }
-                                } catch {}
-                                
+                                } catch { }
+
                                 // Crea array di staticUrlD_CF per ogni ID con metadata
-                                const dcfData: Array<{url: string; id: string; providerName: string}> = [];
+                                const dcfData: Array<{ url: string; id: string; providerName: string }> = [];
                                 for (const id of dlhdIds) {
                                     dcfData.push({
                                         url: buildCfProxyFromId(id, addonBaseUrl),
@@ -3077,7 +3558,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         providerName: dlhdIdToTitle.get(id) || 'Canale'
                                     });
                                 }
-                                
+
                                 // Salva il primo come staticUrlD_CF (per compatibilità) e gli altri in un array separato
                                 if (dcfData.length > 0) {
                                     (channel as any).staticUrlD_CF = dcfData[0].url;
@@ -3094,15 +3575,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             debugLog(`[DynamicStreams][D_CF] errore sintesi da stream DLHD:`, e);
                         }
                     }
-                    
+
                     if ((channel as any).staticUrlD_CF && enableDcf) {
                         try {
                             let cfUrl = (channel as any).staticUrlD_CF as string;
-                            
+
                             // Sostituisci placeholder {usableAddonBase} con l'URL reale dell'addon
                             if (cfUrl.includes('{usableAddonBase}')) {
                                 let addonBaseUrl = '';
-                                
+
                                 // Tentativo 1: Rilevamento automatico dalla richiesta corrente (PRIORITÀ MASSIMA)
                                 try {
                                     const lastReq: any = (global as any).lastExpressRequest;
@@ -3117,7 +3598,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 } catch (e) {
                                     debugLog(`[DLHD] Errore rilevamento automatico addonBase:`, e);
                                 }
-                                
+
                                 // Fallback 2: Variabile ambiente ADDON_BASE_URL
                                 if (!addonBaseUrl) {
                                     const envBase = (process && process.env && process.env.ADDON_BASE_URL) ? String(process.env.ADDON_BASE_URL).trim() : '';
@@ -3126,7 +3607,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         debugLog(`[DLHD] addonBase da variabile ambiente: ${addonBaseUrl}`);
                                     }
                                 }
-                                
+
                                 // Fallback 3: Config runtime (landing page)
                                 if (!addonBaseUrl) {
                                     const configBase = (config as any).addonBase || '';
@@ -3135,17 +3616,17 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         debugLog(`[DLHD] addonBase da config runtime: ${addonBaseUrl}`);
                                     }
                                 }
-                                
+
                                 // Fallback 4: Dominio pubblico default (come VixSrc)
                                 if (!addonBaseUrl) {
                                     addonBaseUrl = 'https://streamvix.hayd.uk';
                                     console.log(`[DLHD] Fallback a dominio pubblico default: ${addonBaseUrl}`);
                                 }
-                                
+
                                 cfUrl = cfUrl.replace('{usableAddonBase}', addonBaseUrl.replace(/\/$/, ''));
                                 debugLog(`[DLHD] Placeholder sostituito: {usableAddonBase} -> ${addonBaseUrl}`);
                             }
-                            
+
                             // Normalizza solo formati legacy
                             const legacyMatch = cfUrl.match(/manifest\.m3u8\?url=https?:\/\/dlhd\.dad\/watch\.php\?id=(\d+)/i);
                             if (legacyMatch) {
@@ -3157,7 +3638,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 if (id0) cfUrl = buildCfProxyFromId(id0);
                             }
                             // Altrimenti mantieni l'URL com'è (nuovo formato /dlhd.m3u8?src=...)
-                            
+
                             const newId = extractDlhdIdFromCf(cfUrl);
                             if (!newId) throw new Error('id non estratto da CF');
 
@@ -3176,7 +3657,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         debugLog(`[D_CF][TITLE] Usando nome provider da metadata: "${baseName}" per id=${newId}`);
                                     }
                                 }
-                                
+
                                 // Fallback 1: prova stream GD
                                 if (!baseName) {
                                     const gdStream = streams.find(s => /^\[🌐Gd\]\s+(.+?)\s+\[ITA\]/i.test(s.title || ''));
@@ -3191,7 +3672,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     if (directIt) {
                                         // rimuovi emoji + spazi + [ITA]
                                         let t = (directIt.title || '').replace(/^🇮🇹\s*/, '').trim();
-                                        t = t.replace(/\s*\[ITA\]\s*$/i,'').trim();
+                                        t = t.replace(/\s*\[ITA\]\s*$/i, '').trim();
                                         baseName = t;
                                     }
                                 }
@@ -3208,27 +3689,27 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     const s = streams[i];
                                     if (!s) continue;
                                     // Match: URL daddy diretto E titolo inizia con 🇮🇹 ma NON 🇮🇹🔄
-                                    if (/^https?:\/\/.*(?:dlhd\.dad\/watch\.php|proxy\/hls\/manifest\.m3u8.*dlhd\.dad)/i.test(s.url) && 
+                                    if (/^https?:\/\/.*(?:dlhd\.dad\/watch\.php|proxy\/hls\/manifest\.m3u8.*dlhd\.dad)/i.test(s.url) &&
                                         /^🇮🇹(?!🔄)/.test(s.title || '')) {
                                         firstDaddyIdx = i;
                                         debugLog(`[D_CF][POS] Trovato primo daddy italiano all'indice ${i}: "${s.title}"`);
                                         break;
                                     }
                                 }
-                                
+
                                 // insertionIndex punta PRIMA del primo daddy (o 0 se non trovato)
                                 const insertionIndex = firstDaddyIdx >= 0 ? firstDaddyIdx : 0;
                                 debugLog(`[D_CF][POS] insertionIndex=${insertionIndex} (firstDaddyIdx=${firstDaddyIdx})`);
-                                
+
                                 if (existingCfIndex !== -1) {
                                     // Aggiorna titolo e riposiziona se necessario
                                     const cfEntry = streams[existingCfIndex];
                                     cfEntry.title = finalTitle;
                                     if (existingCfIndex !== insertionIndex) {
-                                        streams.splice(existingCfIndex,1);
+                                        streams.splice(existingCfIndex, 1);
                                         // Adjust insertionIndex if removal shifts indices
                                         const adjIndex = existingCfIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
-                                        streams.splice(adjIndex,0,cfEntry);
+                                        streams.splice(adjIndex, 0, cfEntry);
                                         debugLog(`Aggiunto/Riposizionato D_CF dinamico id=${newId} da indice ${existingCfIndex} a ${adjIndex} (title='${finalTitle}')`);
                                     }
                                 } else {
@@ -3236,18 +3717,18 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     streams.splice(insertionIndex, 0, entry);
                                     debugLog(`Aggiunto D_CF dinamico id=${newId} all'indice ${insertionIndex} PRIMA dei daddy (title='${finalTitle}')`);
                                 }
-                                
+
                                 // NUOVO: Processa anche _extraD_CF (gli altri DLHD dello stesso canale dinamico)
                                 if ((channel as any)._extraD_CF && Array.isArray((channel as any)._extraD_CF)) {
                                     const extraUrls = (channel as any)._extraD_CF as string[];
                                     // Inserisci subito dopo il primo D_CF appena inserito
                                     // Dopo splice sopra, il primo D_CF è a insertionIndex, quindi extra inizia a insertionIndex+1
                                     let currentInsertPos = insertionIndex + 1;
-                                    
+
                                     for (const extraCfUrl of extraUrls) {
                                         try {
                                             let processedUrl = extraCfUrl;
-                                            
+
                                             // Sostituisci placeholder se presente
                                             if (processedUrl.includes('{usableAddonBase}')) {
                                                 let addonBaseUrl = '';
@@ -3258,23 +3739,23 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                         const host = lastReq.get('host') || lastReq.headers?.host || '';
                                                         if (host) addonBaseUrl = `${protocol}://${host}`;
                                                     }
-                                                } catch {}
+                                                } catch { }
                                                 if (!addonBaseUrl) {
                                                     addonBaseUrl = (process && process.env && process.env.ADDON_BASE_URL) ? String(process.env.ADDON_BASE_URL).trim() : '';
                                                 }
                                                 if (!addonBaseUrl) {
                                                     addonBaseUrl = (config as any).addonBase || 'https://streamvix.hayd.uk';
                                                 }
-                                                processedUrl = processedUrl.replace('{usableAddonBase}', addonBaseUrl.replace(/\/$/,''));
+                                                processedUrl = processedUrl.replace('{usableAddonBase}', addonBaseUrl.replace(/\/$/, ''));
                                             }
-                                            
+
                                             const extraId = extractDlhdIdFromCf(processedUrl);
                                             if (!extraId) continue;
-                                            
+
                                             // Verifica se già esiste
                                             const existingExtraIdx = streams.findIndex(s => extractDlhdIdFromCf(s.url) === extraId);
                                             if (existingExtraIdx !== -1) continue; // Skip se già presente
-                                            
+
                                             // Costruisci titolo usando metadata se disponibile
                                             let extraBaseName = baseName; // Fallback al nome generico
                                             if ((channel as any)._dcfMeta && Array.isArray((channel as any)._dcfMeta)) {
@@ -3285,10 +3766,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                     debugLog(`[D_CF][EXTRA][TITLE] Usando nome provider da metadata: "${extraBaseName}" per id=${extraId}`);
                                                 }
                                             }
-                                            
+
                                             let extraTitle = `🇮🇹🔄  ${extraBaseName}`;
                                             if (!/\bITA\b/i.test(extraTitle)) extraTitle += ' [ITA]';
-                                            
+
                                             // Inserisci alla posizione corrente
                                             const extraEntry = { url: processedUrl, title: extraTitle };
                                             streams.splice(currentInsertPos, 0, extraEntry);
@@ -3302,21 +3783,21 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             } else {
                                 // Statico: mantieni comportamento precedente (replace o append in fondo)
                                 const entry = { url: cfUrl, title: finalTitle };
-                                if (existingCfIndex !== -1) streams.splice(existingCfIndex,1, entry); else streams.push(entry);
+                                if (existingCfIndex !== -1) streams.splice(existingCfIndex, 1, entry); else streams.push(entry);
                                 debugLog(`Aggiunto staticUrlD_CF normalizzato static id=${newId} (title='${finalTitle}')`);
                             }
                         } catch (e) {
                             const errorMsg = (e as any)?.message || String(e);
-                            const errorCode = errorMsg.includes('addonBase non disponibile') ? 'NO_ADDON_BASE' 
-                                            : errorMsg.includes('id non estratto') ? 'ID_EXTRACTION_FAILED' 
-                                            : 'UNKNOWN';
+                            const errorCode = errorMsg.includes('addonBase non disponibile') ? 'NO_ADDON_BASE'
+                                : errorMsg.includes('id non estratto') ? 'ID_EXTRACTION_FAILED'
+                                    : 'UNKNOWN';
                             console.error(`[DLHD][FAIL] Canale: ${channel.name || 'N/A'} | ID: ${channel.id || 'N/A'} | Errore: ${errorCode} | Dettagli: ${errorMsg}`);
                             debugLog(`Errore gestione staticUrlD_CF: ${e}`);
                         }
                     }
-                    // La versione D classica resta condizionata alla presenza MFP (altrimenti occultata come prima)
+                    // La versione D classica resta condizionata alla presenza MFP URL (altrimenti occultata come prima)
                     if ((channel as any).staticUrlD) {
-                        if (mfpUrl && mfpPsw) {
+                        if (mfpUrl) {
                             // LAZY MODE: wrap diretto come dynamic (veloce), MFP estrae al click
                             // EAGER MODE: estrazione preventiva (lento ma completo)
                             // Controllato da env STATIC_DADDY_LAZY (default: 1 = lazy/veloce)
@@ -3326,10 +3807,11 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                     return val !== '0' && val !== 'false' && val !== 'off' && val !== 'no';
                                 } catch { return true; } // default lazy
                             })();
-                            
+
                             if (lazyMode) {
                                 // LAZY: wrap diretto (come dynamic channels), MFP estrae on-demand al playback
-                                const wrappedUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent((channel as any).staticUrlD)}&api_password=${encodeURIComponent(mfpPsw)}`;
+                                const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                const wrappedUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent((channel as any).staticUrlD)}${passwordParam}`;
                                 streams.push({
                                     url: wrappedUrl,
                                     title: `[🌐D] ${channel.name} [ITA]`
@@ -3337,7 +3819,8 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 debugLog(`Aggiunto staticUrlD LAZY (wrap diretto): ${wrappedUrl}`);
                             } else {
                                 // EAGER: estrazione preventiva con extractor/video (comportamento precedente)
-                                const daddyApiBase = `${mfpUrl}/extractor/video?host=DLHD&redirect_stream=false&api_password=${encodeURIComponent(mfpPsw)}&d=${encodeURIComponent((channel as any).staticUrlD)}`;
+                                const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                const daddyApiBase = `${mfpUrl}/extractor/video?host=DLHD&redirect_stream=false${passwordParam}&d=${encodeURIComponent((channel as any).staticUrlD)}`;
                                 try {
                                     const res = await fetch(daddyApiBase);
                                     if (res.ok) {
@@ -3440,19 +3923,20 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 
                         // (RIMOSSO blocco test SPON static: test completato)
                         // Se trovi almeno un link, aggiungi tutti come stream separati numerati
-            if (foundVavooLinks.length > 0) {
+                        if (foundVavooLinks.length > 0) {
                             foundVavooLinks.forEach(({ url, key }, idx) => {
                                 const streamTitle = `[✌️ V-${idx + 1}] ${channel.name} [ITA]`;
-                                if (mfpUrl && mfpPsw) {
-                                    const vavooProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(url)}&api_password=${encodeURIComponent(mfpPsw)}`;
+                                if (mfpUrl) {
+                                    const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                    const vavooProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(url)}${passwordParam}`;
                                     streams.push({
                                         title: streamTitle,
                                         url: vavooProxyUrl
                                     });
                                 } else {
-                                    // Richiesta: nascondere stream Vavoo direct senza MFP
+                                    // Richiesta: nascondere stream Vavoo direct senza MFP URL
                                 }
-                vavooFoundUrls.push(url);
+                                vavooFoundUrls.push(url);
                                 // For each found link, also prepare a clean variant labeled per index (➡️ V-1, V-2, ...)
                                 const reqObj: any = (global as any).lastExpressRequest;
                                 const clientIp = getClientIpFromReq(reqObj);
@@ -3478,14 +3962,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 const links = Array.isArray(exact) ? exact : [exact];
                                 links.forEach((url, idx) => {
                                     const streamTitle = `[✌️ V-${idx + 1}] ${channel.name} [ITA]`;
-                                    if (mfpUrl && mfpPsw) {
-                                        const vavooProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(url)}&api_password=${encodeURIComponent(mfpPsw)}`;
+                                    if (mfpUrl) {
+                                        const passwordParam = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                        const vavooProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(url)}${passwordParam}`;
                                         streams.push({
                                             title: streamTitle,
                                             url: vavooProxyUrl
                                         });
                                     } else {
-                                        // Richiesta: nascondere stream Vavoo direct senza MFP
+                                        // Richiesta: nascondere stream Vavoo direct senza MFP URL
                                     }
                                     vavooFoundUrls.push(url);
                                     // Prepare clean variant per index as well
@@ -3519,66 +4004,51 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         try {
                             const freeshotIdx = streams.findIndex(s => /\[🏟\s*Free\]/i.test(s.title));
                             if (freeshotIdx > -1) {
-                                const freeshotStream = streams.splice(freeshotIdx,1)[0];
+                                const freeshotStream = streams.splice(freeshotIdx, 1)[0];
                                 // Trova posizione dopo eventuali D_CF / D
                                 let insertPos = 0;
-                                for (let i=0;i<streams.length;i++) {
+                                for (let i = 0; i < streams.length; i++) {
                                     if (/\[🌐D_CF\]/.test(streams[i].title) || /\[🌐D\]/.test(streams[i].title)) {
-                                        insertPos = i+1; // dopo l'ultimo D/D_CF
+                                        insertPos = i + 1; // dopo l'ultimo D/D_CF
                                     }
                                 }
-                                streams.splice(insertPos,0,freeshotStream);
+                                streams.splice(insertPos, 0, freeshotStream);
                             }
-                        } catch {}
+                        } catch { }
                         // === SPON (sportzonline) injection (always-on, no placeholders / no time gating) ===
                         try {
-                            const eventName = (channel as any).name || '';
-                            
-                            if (!eventName) {
+                            const eventNameRaw = (channel as any).name || '';
+
+                            if (!eventNameRaw) {
                                 // skip silently
                             } else {
                                 const { fetchSponSchedule, matchRowsForEvent, debugExtractTeams } = await import('./extractors/sponSchedule');
                                 const { extractSportzonlineStream } = await import('./extractors/sportsonline');
-                                
-                                const schedule = await fetchSponSchedule(false).catch((err)=>{ console.log('[SPON] ❌ Schedule fetch failed:', err.message); return [] as any[]; });
-                                
+
+                                const schedule = await fetchSponSchedule(false).catch((err) => { console.log('[SPON] ❌ Schedule fetch failed:', err.message); return [] as any[]; });
+
                                 if (!Array.isArray(schedule) || !schedule.length) {
                                     console.log(`[SPON] ⚠️ No schedule data available`);
-                                    debugLog(`[SPON][DEBUG] schedule empty/invalid for '${eventName}'`);
+                                    debugLog(`[SPON][DEBUG] schedule empty/invalid for '${eventNameRaw}'`);
                                 } else {
-                                    const matched = matchRowsForEvent({ name: eventName }, schedule as any) || [];
-                                    
+                                    const matched = matchRowsForEvent({ name: eventNameRaw }, schedule as any) || [];
+
                                     if (!matched.length) {
-                                        console.log(`[SPON] 🔍 Event NOT found: "${eventName}"`);
-                                        debugLog(`[SPON][DEBUG] matched=0 for '${eventName}'`);
+                                        console.log(`[SPON] 🔍 Event NOT found: "${eventNameRaw}"`);
+                                        debugLog(`[SPON][DEBUG] matched=0 for '${eventNameRaw}'`);
                                     } else {
-                                        console.log(`[SPON] ✅ Event found: "${eventName}" → ${matched.length} streams`);
-                                        // Calcolo solo per futureTag (no gating)
-                                        let eventStart: Date | null = null; let futureTag = '';
-                                        try {
-                                            const nowDate = new Date();
-                                            const weekdayMap: Record<string, number> = { 'SUNDAY':0,'MONDAY':1,'TUESDAY':2,'WEDNESDAY':3,'THURSDAY':4,'FRIDAY':5,'SATURDAY':6 };
-                                            const target = weekdayMap[matched[0].day.toUpperCase()] ?? nowDate.getDay();
-                                            const base = new Date(nowDate);
-                                            const diff = (target - base.getDay() + 7) % 7; base.setDate(base.getDate()+diff);
-                                            const [hh,mm] = matched[0].time.split(':').map(n=>parseInt(n,10));
-                                            base.setHours(hh,mm,0,0); eventStart = base;
-                                            const deltaMs = eventStart.getTime() - Date.now();
-                                            if (deltaMs > 0) futureTag = ` (Inizia alle ${matched[0].time})`;
-                                        } catch {}
-                                        // FIXED: usa fallback a configCache se config è vuoto (seconda chiamata stream)
-                                        const effectiveConfig = (config && (config.mediaFlowProxyUrl || config.mediaFlowProxyPassword)) ? config : configCache;
-                                        const mfpUrl = (effectiveConfig.mediaFlowProxyUrl || process.env.MFP_URL || process.env.MEDIAFLOW_PROXY_URL || '').toString().trim();
-                                        const mfpPsw = (effectiveConfig.mediaFlowProxyPassword || process.env.MFP_PASSWORD || process.env.MEDIAFLOW_PROXY_PASSWORD || process.env.MFP_PSW || '').toString().trim();
-                                        
-                                        if (!mfpUrl || !mfpPsw) {
+                                        console.log(`[SPON] ✅ Event found: "${eventNameRaw}" → ${matched.length} streams`);
+                                        // FIX DEFINITIVO: MFP viene SOLO dalla config utente, mai da cache o env
+                                        // Le variabili mfpUrl e mfpPsw sono già estratte all'inizio dello stream handler
+
+                                        if (!mfpUrl) {
                                             // Skip silently (seconda chiamata senza config)
-                                            debugLog(`[SPON] MFP non configurato -> salto wrap per '${eventName}'`);
+                                            debugLog(`[SPON] MFP URL non configurato -> salto wrap per '${eventNameRaw}'`);
                                         } else {
                                             console.log('[SPON] ✓ MFP OK');
                                             const seen = new Set<string>();
                                             const collected: Stream[] = [];
-                                            for (const row of matched.slice(0,12)) {
+                                            for (const row of matched.slice(0, 12)) {
                                                 const tag = row.channelCode.toUpperCase();
                                                 try {
                                                     // LOGICA PRINCIPALE: wrap diretto dell'URL sportzonline in MFP (veloce, no estrazione)
@@ -3587,15 +4057,17 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                     seen.add(row.url);
                                                     const italianFlag = /^(hd7|hd8)$/i.test(row.channelCode) ? ' 🇮🇹' : '';
                                                     // Wrap diretto: MFP gestirà estrazione iframe + unpacking server-side
-                                                    const wrapped = `${mfpUrl.replace(/\/$/,'')}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(row.url)}&api_password=${encodeURIComponent(mfpPsw)}`;
-                                                    collected.push({ url: wrapped, title: `[SPON${italianFlag}] ${eventName}${futureTag} (${tag})` } as any);
+                                                    const passwordParamSpon = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                                    const wrapped = `${mfpUrl.replace(/\/$/, '')}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(row.url)}${passwordParamSpon}`;
+                                                    // Titolo semplificato: solo [SPON 🇮🇹] (TAG) senza dettagli evento
+                                                    collected.push({ url: wrapped, title: `[SPON${italianFlag}] (${tag})` } as any);
                                                     debugLog(`[SPON][ROW] wrapped ${tag}`);
-                                                } catch (err:any) { debugLog(`[SPON][ROW] unexpected error ${tag} ${(err?.message)||err}`); }
+                                                } catch (err: any) { debugLog(`[SPON][ROW] unexpected error ${tag} ${(err?.message) || err}`); }
                                             }
                                             // FALLBACK: se MFP wrap non ha prodotto stream, prova estrazione TypeScript
                                             if (collected.length === 0 && matched.length > 0) {
                                                 debugLog(`[SPON][FALLBACK] MFP wrap non ha prodotto stream, tentativo estrazione TypeScript...`);
-                                                for (const row of matched.slice(0,3)) { // limita a 3 per performance
+                                                for (const row of matched.slice(0, 3)) { // limita a 3 per performance
                                                     const tag = row.channelCode.toUpperCase();
                                                     try {
                                                         if (seen.has(row.url)) continue;
@@ -3606,47 +4078,46 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                                         const italianFlag = /^(hd7|hd8)$/i.test(row.channelCode) ? ' 🇮🇹' : '';
                                                         const hdr = res.headers || {};
                                                         let finalUrl = res.url;
-                                                        if (Object.keys(hdr).length && mfpUrl && mfpPsw) {
-                                                            const wrappedFallback = `${mfpUrl.replace(/\/$/,'')}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(res.url)}&api_password=${encodeURIComponent(mfpPsw)}`;
+                                                        if (Object.keys(hdr).length && mfpUrl) {
+                                                            const passwordParamFallback = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                                            const wrappedFallback = `${mfpUrl.replace(/\/$/, '')}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(res.url)}${passwordParamFallback}`;
                                                             finalUrl = wrappedFallback;
                                                             debugLog(`[SPON][FALLBACK][ROW] wrapped extracted m3u8 in MFP ${tag}`);
                                                         }
-                                                        collected.push({ url: finalUrl, title: `[SPON${italianFlag}] ${eventName}${futureTag} (${tag})` } as any);
+                                                        // Titolo semplificato: solo [SPON 🇮🇹] (TAG) senza dettagli evento
+                                                        collected.push({ url: finalUrl, title: `[SPON${italianFlag}] (${tag})` } as any);
                                                         debugLog(`[SPON][FALLBACK][ROW] extracted ${tag}`);
-                                                    } catch (err:any) { debugLog(`[SPON][FALLBACK][ROW] failed ${tag} ${(err?.message)||err}`); }
+                                                    } catch (err: any) { debugLog(`[SPON][FALLBACK][ROW] failed ${tag} ${(err?.message) || err}`); }
                                                 }
                                             }
                                             if (collected.length) {
-                                                collected.sort((a,b)=>{
-                                                    const aKey = /(HD7\)|HD8\))/i.test(a.title||'') ? 0 : /\(HD7\)|\(HD8\)/i.test(a.title||'') ? 0 : /\(HD7\)/i.test(a.title||'') ? 0 : /\(HD8\)/i.test(a.title||'') ? 0 : 1;
-                                                    const bKey = /(HD7\)|HD8\))/i.test(b.title||'') ? 0 : /\(HD7\)|\(HD8\)/i.test(b.title||'') ? 0 : /\(HD7\)/i.test(b.title||'') ? 0 : /\(HD8\)/i.test(b.title||'') ? 0 : 1;
-                                                    if (aKey !== bKey) return aKey - bKey; return (a.title||'').localeCompare(b.title||'');
+                                                collected.sort((a, b) => {
+                                                    const aKey = /(HD7\)|HD8\))/i.test(a.title || '') ? 0 : /\(HD7\)|\(HD8\)/i.test(a.title || '') ? 0 : /\(HD7\)/i.test(a.title || '') ? 0 : /\(HD8\)/i.test(a.title || '') ? 0 : 1;
+                                                    const bKey = /(HD7\)|HD8\))/i.test(b.title || '') ? 0 : /\(HD7\)|\(HD8\)/i.test(b.title || '') ? 0 : /\(HD7\)/i.test(b.title || '') ? 0 : /\(HD8\)/i.test(b.title || '') ? 0 : 1;
+                                                    if (aKey !== bKey) return aKey - bKey; return (a.title || '').localeCompare(b.title || '');
                                                 });
                                                 let insertAt = streams.length;
-                                                // 1. Prefer position immediately before first SPSO
-                                                for (let i=0;i<streams.length;i++) { if (/\[SPSO\]/i.test(streams[i].title)) { insertAt = i; break; } }
-                                                if (insertAt === streams.length) {
-                                                    // 2. No SPSO: place right AFTER last Daddy (with 🇮🇹 or rotating arrows emoji) if any
-                                                    const rotatingRegex = /[↻🔄🔁⟳🌀]/;
-                                                    for (let i=streams.length-1;i>=0;i--) {
-                                                        const t = streams[i].title || '';
-                                                        if (/daddy/i.test(t) && (t.includes('🇮🇹') || rotatingRegex.test(t))) { insertAt = i+1; break; }
-                                                    }
+                                                // 1. (SPSO rimosso)
+                                                // 2. Place right AFTER last Daddy (with 🇮🇹 or rotating arrows emoji) if any
+                                                const rotatingRegex = /[↻🔄🔁⟳🌀]/;
+                                                for (let i = streams.length - 1; i >= 0; i--) {
+                                                    const t = streams[i].title || '';
+                                                    if (/daddy/i.test(t) && (t.includes('🇮🇹') || rotatingRegex.test(t))) { insertAt = i + 1; break; }
                                                 }
-                                                const existing = new Set(streams.map(s=>s.url));
-                                                const finalIns = collected.filter(s=>s.url && !existing.has(s.url));
-                                                if (finalIns.length) { streams.splice(insertAt,0,...(finalIns as any)); debugLog(`[SPON] Injected ${finalIns.length} SPON streams (always-on) per '${eventName}'`); }
-                                                else debugLog(`[SPON] Nessun nuovo stream (duplicati) per '${eventName}'`);
+                                                const existing = new Set(streams.map(s => s.url));
+                                                const finalIns = collected.filter(s => s.url && !existing.has(s.url));
+                                                if (finalIns.length) { streams.splice(insertAt, 0, ...(finalIns as any)); debugLog(`[SPON] Injected ${finalIns.length} SPON streams (always-on) per '${eventNameRaw}'`); }
+                                                else debugLog(`[SPON] Nessun nuovo stream (duplicati) per '${eventNameRaw}'`);
                                             } else {
-                                                debugLog(`[SPON] Nessun stream estratto per '${eventName}' (no placeholder)`);
+                                                debugLog(`[SPON] Nessun stream estratto per '${eventNameRaw}' (no placeholder)`);
                                             }
                                         }
                                     }
                                 }
                             }
-                        } catch (e) { 
-                            console.log('[SPON] ❌ Error:', (e as any)?.message || e); 
-                            debugLog('[SPON] injection error', e); 
+                        } catch (e) {
+                            console.log('[SPON] ❌ Error:', (e as any)?.message || e);
+                            debugLog('[SPON] injection error', e);
                         }
                         const allowVavooClean = true; // simplified: always allow clean Vavoo variant
                         for (const s of streams) {
@@ -3655,16 +4126,16 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             if (s.url.includes(marker)) {
                                 const [pureUrl, b64] = s.url.split(marker);
                                 let hdrs: Record<string, string> | undefined;
-                                try { hdrs = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch {}
-                            const isVavooClean = !!hdrs && hdrs['Referer'] === 'https://vavoo.to/' && hdrs['User-Agent'] === DEFAULT_VAVOO_UA;
-                            if (isVavooClean && !allowVavooClean) { continue; }
-                            allStreams.push({ name: getStreamName(pureUrl), title: s.title, url: pureUrl, behaviorHints: { notWebReady: true, headers: hdrs || {}, proxyHeaders: hdrs || {}, proxyUseFallback: true } as any });
+                                try { hdrs = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch { }
+                                const isVavooClean = !!hdrs && hdrs['Referer'] === 'https://vavoo.to/' && hdrs['User-Agent'] === DEFAULT_VAVOO_UA;
+                                if (isVavooClean && !allowVavooClean) { continue; }
+                                allStreams.push({ name: getStreamName(pureUrl), title: s.title, url: pureUrl, behaviorHints: { notWebReady: true, headers: hdrs || {}, proxyHeaders: hdrs || {}, proxyUseFallback: true } as any });
                             } else {
-                            // Fallback: if this looks like a clean Vavoo sunshine URL and title starts with a variant tag, attach default headers
+                                // Fallback: if this looks like a clean Vavoo sunshine URL and title starts with a variant tag, attach default headers
                                 const looksVavoo = /\b(sunshine|hls\/index\.m3u8)\b/.test(s.url) && !/\bproxy\/hls\//.test(s.url);
-                            const variantTitle = /^\s*\[?\s*(➡️|🏠|✌️)\s*V/i.test(s.title);
-                            if (variantTitle && looksVavoo) {
-                                    const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string,string>;
+                                const variantTitle = /^\s*\[?\s*(➡️|🏠|✌️)\s*V/i.test(s.title);
+                                if (variantTitle && looksVavoo) {
+                                    const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string, string>;
                                     if (!allowVavooClean) { continue; }
                                     allStreams.push({ name: getStreamName(s.url), title: s.title, url: s.url, behaviorHints: { notWebReady: true, headers: hdrs, proxyHeaders: hdrs, proxyUseFallback: true } as any });
                                 } else {
@@ -3699,72 +4170,73 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 console.log(`[TVTap] Provo con nome: ${vavooName}`);
 
                                 const tvtapUrl = await new Promise<string | null>((resolve) => {
-                                const timeout = setTimeout(() => {
-                                    console.log(`[TVTap] Timeout per canale: ${vavooName}`);
-                                    resolve(null);
-                                }, 5000);
-
-                                const options = {
-                                    timeout: 5000,
-                                    env: {
-                                        ...process.env,
-                                        PYTHONPATH: '/usr/local/lib/python3.9/site-packages'
-                                    }
-                                };
-
-                                execFile('python3', [path.join(__dirname, '../tvtap_resolver.py'), vavooName], options, (error: Error | null, stdout: string, stderr: string) => {
-                                    clearTimeout(timeout);
-
-                                    if (error) {
-                                        console.error(`[TVTap] Error for ${vavooName}:`, error.message);
-                                        return resolve(null);
-                                    }
-
-                                    if (!stdout || stdout.trim() === '') {
-                                        console.log(`[TVTap] No output for ${vavooName}`);
-                                        return resolve(null);
-                                    }
-
-                                    const result = stdout.trim();
-                                    if (result === 'NOT_FOUND' || result === 'NO_CHANNELS' || result === 'NO_ID' || result === 'STREAM_FAIL') {
-                                        console.log(`[TVTap] Channel not found: ${vavooName} (${result})`);
-                                        return resolve(null);
-                                    }
-
-                                    if (result.startsWith('http')) {
-                                        console.log(`[TVTap] Trovato stream per ${vavooName}: ${result}`);
-                                        resolve(result);
-                                    } else {
-                                        console.log(`[TVTap] Output non valido per ${vavooName}: ${result}`);
+                                    const timeout = setTimeout(() => {
+                                        console.log(`[TVTap] Timeout per canale: ${vavooName}`);
                                         resolve(null);
-                                    }
-                                });
-                            });
+                                    }, 5000);
 
-                            if (tvtapUrl) {
-                                const baseTitle = `[📺 TvTap SD] ${channel.name} [ITA]`;
-                                if (tvtapNoProxy || !(mfpUrl && mfpPsw)) {
-                                    // NO Proxy mode scelto (checkbox ON) oppure mancano credenziali -> link diretto con icona 🔓 senza [❌Proxy]
-                                    streams.push({
-                                        title: `🔓 ${baseTitle}`,
-                                        url: tvtapUrl
+                                    const options = {
+                                        timeout: 5000,
+                                        env: {
+                                            ...process.env,
+                                            PYTHONPATH: '/usr/local/lib/python3.9/site-packages'
+                                        }
+                                    };
+
+                                    execFile('python3', [path.join(__dirname, '../tvtap_resolver.py'), vavooName], options, (error: Error | null, stdout: string, stderr: string) => {
+                                        clearTimeout(timeout);
+
+                                        if (error) {
+                                            console.error(`[TVTap] Error for ${vavooName}:`, error.message);
+                                            return resolve(null);
+                                        }
+
+                                        if (!stdout || stdout.trim() === '') {
+                                            console.log(`[TVTap] No output for ${vavooName}`);
+                                            return resolve(null);
+                                        }
+
+                                        const result = stdout.trim();
+                                        if (result === 'NOT_FOUND' || result === 'NO_CHANNELS' || result === 'NO_ID' || result === 'STREAM_FAIL') {
+                                            console.log(`[TVTap] Channel not found: ${vavooName} (${result})`);
+                                            return resolve(null);
+                                        }
+
+                                        if (result.startsWith('http')) {
+                                            console.log(`[TVTap] Trovato stream per ${vavooName}: ${result}`);
+                                            resolve(result);
+                                        } else {
+                                            console.log(`[TVTap] Output non valido per ${vavooName}: ${result}`);
+                                            resolve(null);
+                                        }
                                     });
-                                    console.log(`[TVTap] DIRECT (NO PROXY mode=${tvtapNoProxy}) per ${channel.name} tramite ${vavooName}`);
-                                } else {
-                                    // Checkbox OFF e credenziali presenti -> usa proxy
-                                    const tvtapProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(tvtapUrl)}&api_password=${encodeURIComponent(mfpPsw)}`;
-                                    streams.push({
-                                        title: baseTitle,
-                                        url: tvtapProxyUrl
-                                    });
-                                    console.log(`[TVTap] PROXY stream per ${channel.name} tramite ${vavooName}`);
+                                });
+
+                                if (tvtapUrl) {
+                                    const baseTitle = `[📺 TvTap SD] ${channel.name} [ITA]`;
+                                    if (tvtapNoProxy || !mfpUrl) {
+                                        // NO Proxy mode scelto (checkbox ON) oppure manca URL proxy -> link diretto con icona 🔓
+                                        streams.push({
+                                            title: `🔓 ${baseTitle}`,
+                                            url: tvtapUrl
+                                        });
+                                        console.log(`[TVTap] DIRECT (NO PROXY mode=${tvtapNoProxy}) per ${channel.name} tramite ${vavooName}`);
+                                    } else {
+                                        // Checkbox OFF e credenziali presenti -> usa proxy
+                                        const passwordParamTvtap = mfpPsw ? `&api_password=${encodeURIComponent(mfpPsw)}` : '';
+                                        const tvtapProxyUrl = `${mfpUrl}/proxy/hls/manifest.m3u8?d=${encodeURIComponent(tvtapUrl)}${passwordParamTvtap}`;
+                                        streams.push({
+                                            title: baseTitle,
+                                            url: tvtapProxyUrl
+                                        });
+                                        console.log(`[TVTap] PROXY stream per ${channel.name} tramite ${vavooName}`);
+                                    }
+                                    break; // Esci dal loop se trovi un risultato
                                 }
-                                break; // Esci dal loop se trovi un risultato
+                            } catch (error) {
+                                console.error(`[TVTap] Errore per vavooName ${vavooName}:`, error);
                             }
-                        } catch (error) {
-                            console.error(`[TVTap] Errore per vavooName ${vavooName}:`, error);
                         }
-                    }
 
                         if (streams.length === 0) {
                             console.log(`[TVTap] RISULTATO: nessun stream trovato per ${channel.name}`);
@@ -3777,7 +4249,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 
                     // Attendi eventuali risoluzioni clean Vavoo prima di restituire
                     if (vavooCleanPromises.length) {
-                        try { await Promise.allSettled(vavooCleanPromises); } catch {}
+                        try { await Promise.allSettled(vavooCleanPromises); } catch { }
                         // Prepend clean Vavoo variants in order (V-1 first)
                         let inserted = 0;
                         vdbg('Clean prepend result', { inserted, totalVariants: vavooCleanPrepend.length });
@@ -3786,23 +4258,23 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             if (entry) { streams.unshift(entry); inserted++; }
                         }
                         // If none resolved clean, add numbered fallbacks with default headers for visibility
-            if (inserted === 0 && vavooFoundUrls.length > 0) {
+                        if (inserted === 0 && vavooFoundUrls.length > 0) {
                             for (let i = vavooFoundUrls.length - 1; i >= 0; i--) {
                                 const u = vavooFoundUrls[i];
-                                const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string,string>;
+                                const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string, string>;
                                 const urlWithHeaders = u + `#headers#` + Buffer.from(JSON.stringify(hdrs)).toString('base64');
-                streams.unshift({ title: `[🏠 V-${i + 1}] ${channel.name} [ITA]`, url: urlWithHeaders });
+                                streams.unshift({ title: `[🏠 V-${i + 1}] ${channel.name} [ITA]`, url: urlWithHeaders });
                             }
                         }
                     }
                     // Dopo aver popolato streams (nella logica TV):
                     for (const s of streams) {
-                        const allowVavooClean = true;
+                        const allowVavooClean = config.vavooNoMfpEnabled !== false; // default true se non specificato
                         const marker = '#headers#';
                         if (s.url.includes(marker)) {
                             const [pureUrl, b64] = s.url.split(marker);
                             let hdrs: Record<string, string> | undefined;
-                            try { hdrs = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch {}
+                            try { hdrs = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')); } catch { }
                             const isVavooClean = !!hdrs && hdrs['Referer'] === 'https://vavoo.to/' && hdrs['User-Agent'] === DEFAULT_VAVOO_UA;
                             if (isVavooClean && !allowVavooClean) { continue; }
                             allStreams.push({ name: getStreamName(pureUrl), title: s.title, url: pureUrl, behaviorHints: { notWebReady: true, headers: hdrs || {}, proxyHeaders: hdrs || {}, proxyUseFallback: true } as any });
@@ -3810,7 +4282,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const looksVavoo = /\b(sunshine|hls\/index\.m3u8)\b/.test(s.url) && !/\bproxy\/hls\//.test(s.url);
                             const variantTitle = /^\s*\[?\s*(➡️|🏠|✌️)\s*V/i.test(s.title);
                             if (variantTitle && looksVavoo) {
-                                const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string,string>;
+                                const hdrs = { 'User-Agent': DEFAULT_VAVOO_UA, 'Referer': 'https://vavoo.to/' } as Record<string, string>;
                                 if (!allowVavooClean) { continue; }
                                 allStreams.push({ name: getStreamName(s.url), title: s.title, url: s.url, behaviorHints: { notWebReady: true, headers: hdrs, proxyHeaders: hdrs, proxyUseFallback: true } as any });
                             } else {
@@ -3840,44 +4312,51 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 const guardaSerieEnabled = envFlag('GUARDASERIE_ENABLED') ?? (config.guardaserieEnabled === true);
                 const guardaHdEnabled = envFlag('GUARDAHD_ENABLED') ?? (config.guardahdEnabled === true);
                 const cb01Enabled = envFlag('CB01_ENABLED') ?? (config as any).cb01Enabled === true;
-                const streamingWatchEnabled = envFlag('STREAMINGWATCH_ENABLED') ?? (config as any).streamingwatchEnabled === true;
                 // Eurostreaming: default ON unless explicitly disabled (config false) or env sets true/false
                 const eurostreamingEnv = envFlag('EUROSTREAMING_ENABLED');
                 const eurostreamingEnabled = eurostreamingEnv !== undefined
                     ? eurostreamingEnv
                     : (config.eurostreamingEnabled !== false); // default true
+                // Loonex: default OFF (nuovo provider)
+                const loonexEnabled = envFlag('LOONEX_ENABLED') ?? (config.loonexEnabled === true);
+                // ToonItalia: default OFF (nuovo provider)
+                const toonitaliaEnabled = envFlag('TOONITALIA_ENABLED') ?? (config.toonitaliaEnabled === true);
+                console.log(`[ToonItalia] Flag status: ${toonitaliaEnabled} (env: ${envFlag('TOONITALIA_ENABLED')}, config: ${config.toonitaliaEnabled})`);
                 // Nuovo flag per inserire VixSrc nell'esecuzione parallela (prima era fuori e poteva saltare)
+                // FIX: usa config dell'utente, NON configCache globale
                 const vixsrcEnabled = (() => {
                     try {
-                        const cfg3 = { ...configCache } as AddonConfig;
-                        if (cfg3.disableVixsrc === true) return false;
-                    } catch {}
+                        if ((config as any).disableVixsrc === true) return false;
+                    } catch { }
                     return true; // default ON
                 })();
                 let vixsrcScheduled = false; // per evitare doppia esecuzione nel blocco sequenziale più sotto
 
-                // Gestione parallela AnimeUnity / AnimeSaturn / AnimeWorld
-                if ((id.startsWith('kitsu:') || id.startsWith('mal:') || id.startsWith('tt') || id.startsWith('tmdb:')) && (animeUnityEnabled || animeSaturnEnabled || animeWorldEnabled || guardaSerieEnabled || guardaHdEnabled || eurostreamingEnabled || vixsrcEnabled)) {
+                const guardoserieEnabled = (config.guardoserieEnabled === true);
+                const guardaflixEnabled = (config.guardaflixEnabled === true);
+
+                // Gestione parallela AnimeUnity / AnimeSaturn / AnimeWorld + Loonex
+                if ((id.startsWith('kitsu:') || id.startsWith('mal:') || id.startsWith('tt') || id.startsWith('tmdb:')) && (animeUnityEnabled || animeSaturnEnabled || animeWorldEnabled || guardaSerieEnabled || guardoserieEnabled || guardaflixEnabled || guardaHdEnabled || eurostreamingEnabled || loonexEnabled || toonitaliaEnabled || cb01Enabled || vixsrcEnabled)) {
                     const animeUnityConfig: AnimeUnityConfig = {
                         enabled: animeUnityEnabled,
-                        mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                        mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
+                        mfpUrl: mfpUrl,
+                        mfpPassword: mfpPsw,
                         tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                        animeunityAuto: (()=>{ const v = (config as any).animeunityAuto; if (v===undefined) return undefined; return v===true || v==='true' || v==='on' || v===1; })(),
-                        animeunityFhd: (()=>{ const v = (config as any).animeunityFhd; if (v===undefined) return undefined; return v===true || v==='true' || v==='on' || v===1; })(),
+                        animeunityAuto: (() => { const v = (config as any).animeunityAuto; if (v === undefined) return undefined; return v === true || v === 'true' || v === 'on' || v === 1; })(),
+                        animeunityFhd: (() => { const v = (config as any).animeunityFhd; if (v === undefined) return undefined; return v === true || v === 'true' || v === 'on' || v === 1; })(),
                     };
                     const animeSaturnConfig = {
                         enabled: animeSaturnEnabled,
-                        mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                        mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
-                        mfpProxyUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                        mfpProxyPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
+                        mfpUrl: mfpUrl,
+                        mfpPassword: mfpPsw,
+                        mfpProxyUrl: mfpUrl,
+                        mfpProxyPassword: mfpPsw,
                         tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
                     };
                     const animeWorldConfig = {
                         enabled: animeWorldEnabled,
-                        mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                        mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
+                        mfpUrl: mfpUrl,
+                        mfpPassword: mfpPsw,
                         tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
                     };
                     // Parsing stagione/episodio per IMDB/TMDB
@@ -3908,8 +4387,11 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         if (l.includes('guardaserie')) return 'guardaserie';
                         if (l.includes('guardahd')) return 'guardahd';
                         if (l.includes('cb01')) return 'cb01';
-                        if (l.includes('streamingwatch')) return 'streamingwatch';
                         if (l.includes('eurostreaming')) return 'eurostreaming';
+                        if (l.includes('loonex')) return 'loonex';
+                        if (l.includes('toonitalia')) return 'toonitalia';
+                        if (l.includes('guardaflix')) return 'guardaflix';
+                        if (l.includes('guardoserie')) return 'guardoserie';
                         return 'generic';
                     };
                     const unifyStreams = (original: Stream[], providerLabelName: string): Stream[] => {
@@ -3919,14 +4401,14 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         let canonicalVixBase: string | null = null;
                         if (providerKey === 'vixsrc') {
                             for (const st of original) {
-                                const first = (st.title||'').toString().split('\n')[0];
+                                const first = (st.title || '').toString().split('\n')[0];
                                 if (first && !/Synthetic FHD|Proxy FHD/i.test(first)) {
                                     canonicalVixBase = first
                                         .replace(/^\s*🎬\s*/, '')
-                                        .replace(/\[?(ITA|SUB)\]?/ig,'')
-                                        .replace(/🔒|🔓FHD?|🔓/g,'')
-                                        .replace(/\s*•\s*/g,' ')
-                                        .replace(/\s{2,}/g,' ')
+                                        .replace(/\[?(ITA|SUB)\]?/ig, '')
+                                        .replace(/🔒|🔓FHD?|🔓/g, '')
+                                        .replace(/\s*•\s*/g, ' ')
+                                        .replace(/\s{2,}/g, ' ')
                                         .trim();
                                     if (canonicalVixBase) break;
                                 }
@@ -3939,8 +4421,8 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 }
                             }
                         }
-                        const hostMap: Record<string,string> = {
-                            'mixdrop':'Mixdrop', 'dropload':'Dropload', 'streamtape':'Streamtape', 'supervideo':'SuperVideo', 'doodstream':'Doodstream', 'deltabit':'Deltabit', 'delta bit':'Deltabit'
+                        const hostMap: Record<string, string> = {
+                            'mixdrop': 'Mixdrop', 'dropload': 'Dropload', 'streamtape': 'Streamtape', 'supervideo': 'SuperVideo', 'doodstream': 'Doodstream', 'deltabit': 'Deltabit', 'delta bit': 'Deltabit', 'loadm': 'LoadM'
                         };
                         return original.map(st => {
                             const url = (st as any).url || '';
@@ -3949,13 +4431,13 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             let baseLine = lines[0] || '';
                             // Remove duplicated leading icons / tags
                             baseLine = baseLine.replace(/^\s*🎬\s*/, '');
-                            for (let i=0;i<3;i++) baseLine = baseLine.replace(/^\s*\[[^\]]+\]\s*/,'').trim();
+                            for (let i = 0; i < 3; i++) baseLine = baseLine.replace(/^\s*\[[^\]]+\]\s*/, '').trim();
                             // Strip language markers or bullet language artifacts from base line
                             baseLine = baseLine
-                                .replace(/\s*[•▪]\s*\[?(ITA|SUB)\]?/ig,'')
-                                .replace(/\s*\b(ITA|SUB)\b/ig,'')
-                                .replace(/\s*•\s*\[SUB ITA\]/ig,'')
-                                .replace(/\s{2,}/g,' ') // collapse spaces
+                                .replace(/\s*[•▪]\s*\[?(ITA|SUB)\]?/ig, '')
+                                .replace(/\s*\b(ITA|SUB)\b/ig, '')
+                                .replace(/\s*•\s*\[SUB ITA\]/ig, '')
+                                .replace(/\s{2,}/g, ' ') // collapse spaces
                                 .trim();
                             // Replace synthetic placeholder names with canonical title
                             if (providerKey === 'vixsrc' && /^(Synthetic FHD|Proxy FHD)$/i.test(baseLine)) {
@@ -3968,19 +4450,19 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             // Extra cleanup for VixSrc: rimuovi eventuali marker lingua / lock rimasti nel baseLine
                             if (providerKey === 'vixsrc') {
                                 baseLine = baseLine
-                                    .replace(/\[?(ITA|SUB)\]?/ig,'')
-                                    .replace(/🔒|🔓FHD?|🔓/g,'')
-                                    .replace(/\s*•\s*/g,' ')
-                                    .replace(/\s{2,}/g,' ')
+                                    .replace(/\[?(ITA|SUB)\]?/ig, '')
+                                    .replace(/🔒|🔓FHD?|🔓/g, '')
+                                    .replace(/\s*•\s*/g, ' ')
+                                    .replace(/\s{2,}/g, ' ')
                                     .trim();
                             }
                             // Cleanup universale aggiuntivo: rimuovi eventuali [ITA]/[SUB] residui attaccati senza spazio e lock icon per qualsiasi provider
                             baseLine = baseLine
-                                .replace(/\[ITA\]/ig,'')
-                                .replace(/\[SUB\]/ig,'')
-                                .replace(/🔒|🔓FHD?|🔓/g,'')
-                                .replace(/\s{2,}/g,' ')
-                                .replace(/\s+$/,'')
+                                .replace(/\[ITA\]/ig, '')
+                                .replace(/\[SUB\]/ig, '')
+                                .replace(/🔒|🔓FHD?|🔓/g, '')
+                                .replace(/\s{2,}/g, ' ')
+                                .replace(/\s+$/, '')
                                 .trim();
                             // Language detection (from whole raw title)
                             const isSub = /\bsub\b|\[sub\]/i.test(rawTitle);
@@ -4002,17 +4484,26 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 for (const k of Object.keys(hostMap)) {
                                     if (lowerAll.includes(k)) { playerName = hostMap[k]; break; }
                                 }
+                                // Try to preserve existing player name line if not found
+                                if (!playerName) {
+                                    for (const l of lines) {
+                                        if (l.includes('▶️')) {
+                                            playerName = l.replace('▶️', '').trim();
+                                            break;
+                                        }
+                                    }
+                                }
                                 // Try to parse existing size/res lines produced by extractors (line starting with 💾)
                                 // Patterns we expect from extractors: "💾 <SIZE> • <RES>", "💾 <SIZE>", "💾 <SIZE> • <somethingp>", or combined tokens separated by spaces or bullets.
                                 for (const l of lines) {
                                     if (/^\s*💾/i.test(l)) {
                                         // Remove leading icon
-                                        let rest = l.replace(/^\s*💾\s*/,'').trim();
+                                        let rest = l.replace(/^\s*💾\s*/, '').trim();
                                         // Split by separators (bullet • or whitespace)
                                         const parts = rest.split(/\s*[•|]\s*|\s+/).filter(Boolean);
                                         // Heuristics: first part maybe size (contains MB/GB), any part matching \d{3,4}p is resolution
                                         for (const p of parts) {
-                                            if (!sizeHuman && /([0-9]+(?:\.[0-9]+)?\s*(?:GB|MB))/i.test(p)) sizeHuman = p.replace(/gb$/i,'GB').replace(/mb$/i,'MB');
+                                            if (!sizeHuman && /([0-9]+(?:\.[0-9]+)?\s*(?:GB|MB))/i.test(p)) sizeHuman = p.replace(/gb$/i, 'GB').replace(/mb$/i, 'MB');
                                             if (!resHuman && /^(\d{3,4})p$/i.test(p)) resHuman = p.toLowerCase();
                                         }
                                     }
@@ -4041,15 +4532,15 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             let sizeResLine = '';
                             if (sizeHuman || resHuman) {
                                 if (sizeHuman && resHuman) {
-                                    sizeResLine = `💾 ${sizeHuman.replace(/B$/,'B')} 🎦 ${resHuman}`;
+                                    sizeResLine = `💾 ${sizeHuman.replace(/B$/, 'B')} 🎦 ${resHuman}`;
                                 } else if (sizeHuman) {
-                                    sizeResLine = `💾 ${sizeHuman.replace(/B$/,'B')}`;
+                                    sizeResLine = `💾 ${sizeHuman.replace(/B$/, 'B')}`;
                                 } else if (resHuman) {
                                     sizeResLine = `🎦 ${resHuman}`; // resolution only
                                 }
                             }
                             if (sizeResLine) outLines.push(sizeResLine);
-                            outLines.push(`🌐 Proxy (${proxyOn ? 'ON':'OFF'})`);
+                            outLines.push(`🌐 Proxy (${proxyOn ? 'ON' : 'OFF'})`);
                             const unifiedTitle = outLines.join('\n');
                             // ---------------- BINGE GROUP LOGIC (CUSTOM MAP) ----------------
                             // Richiesta utente:
@@ -4060,7 +4551,6 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             // eurostreaming: eurostreaming-ita | eurostreaming-sub
                             // cb01: cb01-std
                             // guardahd: guardahd-std (tutti) | guardahd-prx (solo mixdrop)
-                            // streamingwatch: streamingwatch-std
                             // guardaserie: guardaserie-std
                             // Altri provider (fallback): providerKey-std
                             // Nota: determinazione lingua basata su isSub (SUB vs ITA)
@@ -4089,12 +4579,16 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                         // Identifica mixdrop (playerName o rawTitle)
                                         const isMix = /mixdrop/i.test(playerName || '') || /mixdrop/i.test(rawTitle);
                                         bingeGroup = isMix ? 'guardahd-prx' : 'guardahd-std';
-                                        break; }
-                                    case 'streamingwatch':
-                                        bingeGroup = 'streamingwatch-std';
                                         break;
+                                    }
                                     case 'guardaserie':
                                         bingeGroup = 'guardaserie-std';
+                                        break;
+                                    case 'loonex':
+                                        bingeGroup = 'loonex-std';
+                                        break;
+                                    case 'toonitalia':
+                                        bingeGroup = 'toonitalia-std';
                                         break;
                                     default:
                                         bingeGroup = `${providerKey}-std`;
@@ -4105,10 +4599,22 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             return { ...st, title: unifiedTitle, name: providerLabel(providerKey, isFhdOrDual), behaviorHints: mergedHints } as Stream;
                         });
                     };
-                    const runProvider = async (name: string, enabled: boolean, handler: () => Promise<{ streams: Stream[] }>, streamName: string, isMixdropSensitive = false) => {
+                    const runProvider = async (name: string, enabled: boolean, handler: () => Promise<{ streams: Stream[] }>, streamName: string, isMixdropSensitive = false, timeoutMs: number | null = null) => {
                         if (enabled) {
                             try {
-                                const result = await handler();
+                                let result;
+
+                                if (timeoutMs !== null && timeoutMs > 0) {
+                                    // Provider con timeout personalizzato
+                                    const timeoutPromise = new Promise<{ streams: Stream[] }>((_, reject) => {
+                                        setTimeout(() => reject(new Error(`${name} timeout after ${timeoutMs}ms`)), timeoutMs);
+                                    });
+                                    result = await Promise.race([handler(), timeoutPromise]);
+                                } else {
+                                    // Provider senza timeout (comportamento attuale)
+                                    result = await handler();
+                                }
+
                                 if (result && result.streams) {
                                     const prepared = result.streams.map(s => {
                                         if (isMixdropSensitive) {
@@ -4132,8 +4638,8 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         providerPromises.push(runProvider('VixSrc', true, async () => {
                             const finalConfig: ExtractorConfig = {
                                 tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                                mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL,
-                                mfpPsw: config.mediaFlowProxyPassword || process.env.MFP_PSW,
+                                mfpUrl: mfpUrl,
+                                mfpPsw: mfpPsw,
                                 // vixLocal flag removed (property not in config)
                                 vixDual: !!(config as any)?.vixDual,
                                 // Propaga nuove checkbox per bridge interno
@@ -4141,10 +4647,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 vixDirectFhd: (config as any)?.vixDirectFhd === true,
                                 vixProxy: (config as any)?.vixProxy === true,
                                 vixProxyFhd: (config as any)?.vixProxyFhd === true,
-                                addonBase: (config as any)?.addonBase || ( () => {
+                                addonBase: (config as any)?.addonBase || (() => {
                                     try {
                                         const proto = (process.env.EXTERNAL_PROTOCOL || 'https');
-                                        const host = (process.env.EXTERNAL_HOST || process.env.HOST || process.env.VERCEL_URL || '').replace(/\/$/,'');
+                                        const host = (process.env.EXTERNAL_HOST || process.env.HOST || process.env.VERCEL_URL || '').replace(/\/$/, '');
                                         if (host) return `${proto}://${host}`;
                                         return '';
                                     } catch { return ''; }
@@ -4154,7 +4660,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const res: VixCloudStreamInfo[] | null = await getStreamContent(id, type, finalConfig);
                             if (!res) return { streams: [] };
                             const fmtBytes = (n: number): string => {
-                                const units = ['B','KB','MB','GB','TB'];
+                                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
                                 let v = n; let u = 0; while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
                                 return `${v.toFixed(v >= 10 || u === 0 ? 0 : 1)} ${units[u]}`;
                             };
@@ -4172,7 +4678,40 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 streams.push({ title: finalTitle, url: st.streamUrl, behaviorHints: { notWebReady: true, headers: { Referer: st.referer } } as any, isSyntheticFhd: st.isSyntheticFhd, originalName: (st as any).originalName } as any);
                             }
                             return { streams };
-                        }, providerLabel('vixsrc')));
+                        }, providerLabel('vixsrc'), false, 30000));  // VixSrc: timeout 30s
+                    }
+
+
+                    // === GUARDOSERIE PROVIDER (Movie/Series) ===
+                    if (((config as any).guardoserieEnabled) && ((type as string) === 'movie' || (type as string) === 'series')) {
+                        providerPromises.push(runProvider('Guardoserie', true, async () => {
+                            try {
+                                const gsStreams = await getGuardoserieStreams(type, id, (config as any).tmdbApiKey, mfpUrl, mfpPsw);
+                                if (gsStreams && gsStreams.length > 0) {
+                                    console.log(`✅ [Guardoserie] Found ${gsStreams.length} streams for ${id}`);
+                                    return { streams: gsStreams };
+                                }
+                            } catch (e) {
+                                console.error(`❌ [Guardoserie] Error processing ${id}:`, e);
+                            }
+                            return { streams: [] };
+                        }, providerLabel('guardoserie'), false, 30000));
+                    }
+
+                    // === GUARDAFLIX PROVIDER (Movie Only) ===
+                    if (((config as any).guardaflixEnabled) && ((type as string) === 'movie')) {
+                        providerPromises.push(runProvider('Guardaflix', true, async () => {
+                            try {
+                                const gfStreams = await getGuardaflixStreams(type, id, (config as any).tmdbApiKey, mfpUrl, mfpPsw);
+                                if (gfStreams && gfStreams.length > 0) {
+                                    console.log(`✅ [Guardaflix] Found ${gfStreams.length} streams for ${id}`);
+                                    return { streams: gfStreams };
+                                }
+                            } catch (e) {
+                                console.error(`❌ [Guardaflix] Error processing ${id}:`, e);
+                            }
+                            return { streams: [] };
+                        }, providerLabel('guardaflix'), false, 30000));
                     }
 
                     // AnimeUnity
@@ -4186,7 +4725,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         else res = { streams: [] };
                         // Uniforma pattern VixSrc: non manipolare multi-line title qui; providerLabel userà isSyntheticFhd
                         return res;
-                    }, providerLabel('animeunity')));
+                    }, providerLabel('animeunity'), false, 30000));  // AnimeUnity: timeout 30s
 
                     // AnimeSaturn
                     providerPromises.push(runProvider('AnimeSaturn', animeSaturnEnabled, async () => {
@@ -4197,7 +4736,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         if (id.startsWith('tt')) return animeSaturnProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
                         if (id.startsWith('tmdb:')) return animeSaturnProvider.handleTmdbRequest(id.replace('tmdb:', ''), seasonNumber, episodeNumber, isMovie);
                         return { streams: [] };
-                    }, providerLabel('animesaturn')));
+                    }, providerLabel('animesaturn'), false, 30000));  // AnimeSaturn: timeout 30s
 
                     // AnimeWorld
                     providerPromises.push(runProvider('AnimeWorld', animeWorldEnabled, async () => {
@@ -4208,7 +4747,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         if (id.startsWith('tt')) return animeWorldProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
                         if (id.startsWith('tmdb:')) return animeWorldProvider.handleTmdbRequest(id.replace('tmdb:', ''), seasonNumber, episodeNumber, isMovie);
                         return { streams: [] };
-                    }, providerLabel('animeworld')));
+                    }, providerLabel('animeworld'), false, 30000));  // AnimeWorld: timeout 30s
 
                     // GuardaSerie
                     if (guardaSerieEnabled && (id.startsWith('tt') || id.startsWith('tmdb:'))) {
@@ -4217,13 +4756,13 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const gsProvider = new GuardaSerieProvider({
                                 enabled: true,
                                 tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                                mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                                mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || ''
+                                mfpUrl: mfpUrl,
+                                mfpPassword: mfpPsw
                             });
                             if (id.startsWith('tt')) return gsProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
                             if (id.startsWith('tmdb:')) return gsProvider.handleTmdbRequest(id.replace('tmdb:', ''), seasonNumber, episodeNumber, isMovie);
                             return { streams: [] };
-                        }, providerLabel('guardaserie')));
+                        }, providerLabel('guardaserie'), false, 30000));  // GuardaSerie: timeout 30s
                     }
 
                     // GuardaHD
@@ -4233,13 +4772,13 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const ghProvider = new GuardaHdProvider({
                                 enabled: true,
                                 tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                                mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                                mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || ''
+                                mfpUrl: mfpUrl,
+                                mfpPassword: mfpPsw
                             });
                             if (id.startsWith('tt')) return ghProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
                             if (id.startsWith('tmdb:')) return ghProvider.handleTmdbRequest(id.replace('tmdb:', ''), seasonNumber, episodeNumber, isMovie);
                             return { streams: [] };
-                        }, providerLabel('guardahd'), true));
+                        }, providerLabel('guardahd'), true, 30000));  // GuardaHD: timeout 30s
                     }
 
                     // CB01 (Mixdrop only)
@@ -4248,24 +4787,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const { Cb01Provider } = await import('./providers/cb01-provider');
                             const cbProvider = new Cb01Provider({
                                 enabled: true,
-                                mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                                mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
+                                mfpUrl: mfpUrl,
+                                mfpPassword: mfpPsw,
                                 tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
                             });
                             return cbProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
-                        }, providerLabel('cb01'), true));
-                    }
-
-                    // StreamingWatch (nuovo provider) - supporta film e serie
-                    if (streamingWatchEnabled && id.startsWith('tt')) {
-                        providerPromises.push(runProvider('StreamingWatch', true, async () => {
-                            const { StreamingWatchProvider } = await import('./providers/streamingwatch-provider');
-                            const swProvider = new StreamingWatchProvider({
-                                enabled: true,
-                                tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
-                            });
-                            return swProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
-                        }, providerLabel('streamingwatch')));
+                        }, providerLabel('cb01'), true, 30000));  // CB01: timeout 30s
                     }
 
                     // Eurostreaming
@@ -4274,12 +4801,60 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                             const { EurostreamingProvider } = await import('./providers/eurostreaming-provider');
                             const esProvider = new EurostreamingProvider({
                                 enabled: true,
-                                mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL || '',
-                                mfpPassword: config.mediaFlowProxyPassword || process.env.MFP_PSW || '',
+                                mfpUrl: mfpUrl,
+                                mfpPassword: mfpPsw,
                                 tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
                             });
                             return esProvider.handleImdbRequest(id, seasonNumber, episodeNumber, isMovie);
-                        }, providerLabel('eurostreaming'), true));
+                        }, providerLabel('eurostreaming'), true, 30000));  // Eurostreaming: timeout 30s
+                    }
+
+                    // Loonex (serie TV)
+                    if (loonexEnabled && type === 'series' && seasonNumber != null && episodeNumber != null && (id.startsWith('tt') || id.startsWith('tmdb:'))) {
+                        providerPromises.push(runProvider('Loonex', true, async () => {
+                            const { getLoonexStreams } = await import('./providers/loonex-provider');
+                            // Extract IDs from the request
+                            const tmdbId = id.startsWith('tmdb:') ? id.replace('tmdb:', '').split(':')[0] : undefined;
+                            const imdbId = id.startsWith('tt') ? id.split(':')[0] : '';
+                            console.log(`[DEBUG-LOONEX] Calling getLoonexStreams: type=${type}, imdbId=${imdbId}, tmdbId=${tmdbId}, S${seasonNumber}E${episodeNumber}`);
+                            // Non passiamo il titolo, lo recupererà da TMDb
+                            const streams = await getLoonexStreams(type, imdbId, undefined, seasonNumber, episodeNumber, tmdbId);
+                            return { streams };
+                        }, providerLabel('loonex'), false, 30000));  // Loonex: timeout 30s
+                    }
+
+                    // ToonItalia (serie TV/Anime) - Ricerca dinamica via TMDb
+                    if (toonitaliaEnabled && seasonNumber != null && episodeNumber != null) {
+                        providerPromises.push(runProvider('ToonItalia', true, async () => {
+                            const { toonitalia } = await import('./providers/toonitalia-provider');
+
+                            // Costruisci ID nel formato appropriato
+                            let requestId: string;
+                            if (id.startsWith('tt')) {
+                                // IMDb ID: "tt1234567:season:episode"
+                                requestId = `${id.split(':')[0]}:${seasonNumber}:${episodeNumber}`;
+                            } else if (id.startsWith('tmdb:')) {
+                                // TMDb ID: "tmdb:12345:season:episode"
+                                const tmdbId = id.replace('tmdb:', '').split(':')[0];
+                                requestId = `tmdb:${tmdbId}:${seasonNumber}:${episodeNumber}`;
+                            } else {
+                                // Fallback (shouldn't happen)
+                                console.log('[ToonItalia] Unknown ID format:', id);
+                                return { streams: [] };
+                            }
+
+                            console.log(`[ToonItalia] Calling provider with: ${requestId}`);
+                            const streams = await toonitalia({
+                                id: requestId,
+                                type: type as 'movie' | 'series',
+                                config: {
+                                    mfpUrl: mfpUrl || '',
+                                    mfpPsw: mfpPsw || '',
+                                    tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0'
+                                }
+                            });
+                            return { streams };
+                        }, 'ToonItalia', false, 30000));  // ToonItalia: timeout 30s
                     }
 
 
@@ -4291,12 +4866,12 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         for (const s of allStreams) {
                             const lowerName = (s.name || s.title || '').toLowerCase();
                             if (lowerName.includes('anime unity')) {
-                                const isFhd = !!( (s as any).isSyntheticFhd || s.behaviorHints?.animeunityQuality === 'FHD' || /fhd/.test(s.title||'') );
+                                const isFhd = !!((s as any).isSyntheticFhd || s.behaviorHints?.animeunityQuality === 'FHD' || /fhd/.test(s.title || ''));
                                 const before = s.name;
                                 s.name = providerLabel('animeunity', isFhd);
                                 if (isFhd) auAdjusted++;
                                 if (isFhd) {
-                                    try { console.log('[AnimeUnity][LabelPass] Marked FHD stream name:', before, '->', s.name); } catch {}
+                                    try { console.log('[AnimeUnity][LabelPass] Marked FHD stream name:', before, '->', s.name); } catch { }
                                 }
                             }
                         }
@@ -4305,14 +4880,27 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     } catch (e) {
                         console.warn('[AnimeUnity][LabelPass] errore post-process badge FHD:', (e as any)?.message || e);
                     }
+
+                    // Post-process ToonItalia streams to apply unified label
+                    try {
+                        for (const s of allStreams) {
+                            const lowerName = (s.name || s.title || '').toLowerCase();
+                            if (lowerName.includes('toonitalia')) {
+                                s.name = mapLegacyProviderName(s.name || 'ToonItalia');
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[ToonItalia][LabelPass] errore post-process label:', (e as any)?.message || e);
+                    }
                 }
 
                 if (!vixsrcScheduled && !id.startsWith('kitsu:') && !id.startsWith('mal:') && !id.startsWith('tv:')) {
-                    try { const cfg3 = { ...configCache } as AddonConfig; if (cfg3.disableVixsrc === true) return { streams: allStreams }; } catch {}
+                    // FIX: usa config dell'utente, NON configCache globale
+                    try { if ((config as any).disableVixsrc === true) return { streams: allStreams }; } catch { }
                     const finalConfig: ExtractorConfig = {
                         tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                        mfpUrl: config.mediaFlowProxyUrl || process.env.MFP_URL,
-                        mfpPsw: config.mediaFlowProxyPassword || process.env.MFP_PSW,
+                        mfpUrl: mfpUrl,
+                        mfpPsw: mfpPsw,
                         // vixLocal flag removed
                         vixDual: !!(config as any)?.vixDual,
                         vixDirect: (config as any)?.vixDirect === true,
@@ -4325,13 +4913,13 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     if (res) {
                         for (const st of res) {
                             if (!st.streamUrl) continue;
-                            let rawBase = (st.name||'').replace(/\s*•\s*\[ITA\]$/i,'').replace(/\s*\[ITA\]$/i,'').trim();
+                            let rawBase = (st.name || '').replace(/\s*•\s*\[ITA\]$/i, '').replace(/\s*\[ITA\]$/i, '').trim();
                             if (/^(Synthetic FHD|Proxy FHD)$/i.test(rawBase) && (st as any).originalName) {
                                 rawBase = (st as any).originalName;
                             }
                             let unified = buildUnifiedStreamName({
                                 baseTitle: rawBase || 'VixSrc',
-                                isSub: /\bsub\b|\[sub\]/i.test(st.name||''),
+                                isSub: /\bsub\b|\[sub\]/i.test(st.name || ''),
                                 sizeBytes: undefined, // non includere size per coerenza esempio
                                 playerName: undefined,
                                 proxyOn: st.source === 'proxy',
@@ -4339,7 +4927,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 isFhdOrDual: !!st.isSyntheticFhd
                             });
                             const parts = unified.split('\n');
-                            if (parts.length && /^🤌\s/.test(parts[parts.length-1])) parts.pop();
+                            if (parts.length && /^🤌\s/.test(parts[parts.length - 1])) parts.pop();
                             unified = parts.join('\n');
                             allStreams.push({ title: unified, name: providerLabel('vixsrc', !!st.isSyntheticFhd), url: st.streamUrl, behaviorHints: { notWebReady: true, headers: { Referer: st.referer } } as any, originalName: (st as any).originalName });
                         }
@@ -4366,15 +4954,14 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         if (l.includes('guardaserie')) return 4;
                         if (l.includes('guardahd')) return 5;
                         if (l.includes('cb01')) return 6;
-                        if (l.includes('streamingwatch')) return 7;
                         if (l.includes('eurostreaming')) return 8;
                         return 50;
                     };
                     // Ordina per provider solo se NON è TV (movie/series mantengono ordinamento provider)
                     if (type !== 'tv') {
-                        allStreams.sort((a,b)=> rank((a.name||a.title||'').toString()) - rank((b.name||b.title||'').toString()));
+                        allStreams.sort((a, b) => rank((a.name || a.title || '').toString()) - rank((b.name || b.title || '').toString()));
                     }
-                } catch {}
+                } catch { }
                 console.log(`✅ Total streams returned: ${allStreams.length}`);
                 return { streams: allStreams };
             } catch (error) {
@@ -4390,7 +4977,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 // Server Express
 const app = express();
 // Trust proxy chain so req.ip / req.ips use X-Forwarded-For correctly when behind a proxy/CDN
-try { (app as any).set('trust proxy', true); } catch {}
+try { (app as any).set('trust proxy', true); } catch { }
 
 // PRIORITY: Configure routes must be first to avoid conflicts with global router
 // Single, minimal Configure handler: '/{config}/configure'
@@ -4477,10 +5064,10 @@ app.options(['/manifest.json', '/:config/manifest.json', '/cfg/:config/manifest.
 app.get(['/manifest.json', '/:config/manifest.json', '/cfg/:config/manifest.json'], (req: Request, res: Response) => {
     try {
         const base = loadCustomConfig();
-    // Parse optional config from URL segment OR query string (?config=...)
-    const rawParamCfg = (req.params as any)?.config;
-    const rawQueryCfg = typeof req.query.config === 'string' ? (req.query.config as string) : undefined;
-    const cfgFromUrl = rawParamCfg ? parseConfigFromArgs(rawParamCfg) : (rawQueryCfg ? parseConfigFromArgs(rawQueryCfg) : {});
+        // Parse optional config from URL segment OR query string (?config=...)
+        const rawParamCfg = (req.params as any)?.config;
+        const rawQueryCfg = typeof req.query.config === 'string' ? (req.query.config as string) : undefined;
+        const cfgFromUrl = rawParamCfg ? parseConfigFromArgs(rawParamCfg) : (rawQueryCfg ? parseConfigFromArgs(rawQueryCfg) : {});
         // Build a manifest copy with defaults prefilled from cfgFromUrl or runtime cache
         const manifestWithDefaults: any = { ...base };
         const sourceCfg = (cfgFromUrl && Object.keys(cfgFromUrl).length) ? cfgFromUrl : (configCache as any);
@@ -4510,7 +5097,7 @@ app.get(['/manifest.json', '/:config/manifest.json', '/cfg/:config/manifest.json
         res.json(filtered);
     } catch (e: any) {
         console.error('❌ Manifest route error:', e?.message || e);
-    const fallback = loadCustomConfig();
+        const fallback = loadCustomConfig();
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -4521,15 +5108,15 @@ app.get(['/manifest.json', '/:config/manifest.json', '/cfg/:config/manifest.json
 
 // Endpoint sintetico: genera mini-master con sola variante video massima e traccia AUDIO italiana
 // Supporta sia /vixsynthetic che /vixsynthetic.m3u8 per compatibilità player
-app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Response) => {
+app.get(['/vixsynthetic', '/vixsynthetic.m3u8'], async (req: Request, res: Response) => {
     try {
         const src = typeof req.query.src === 'string' ? req.query.src : '';
         if (!src) return res.status(400).send('#EXTM3U\n# Missing src');
         const langPref = ((req.query.lang as string) || 'it').toLowerCase();
-        const multiFlag = (()=>{
-            const m = String(req.query.multi||'').toLowerCase();
-            if (['1','true','on','yes','all'].includes(m)) return true;
-            if (String(req.query.languages||'').toLowerCase()==='all') return true;
+        const multiFlag = (() => {
+            const m = String(req.query.multi || '').toLowerCase();
+            if (['1', 'true', 'on', 'yes', 'all'].includes(m)) return true;
+            if (String(req.query.languages || '').toLowerCase() === 'all') return true;
             return false;
         })();
         if (multiFlag) console.log('[vixsynthetic] multi-language mode attivo');
@@ -4544,28 +5131,28 @@ app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Respon
         const lines = text.split(/\r?\n/);
         interface Variant { url: string; height: number; bandwidth: number; info: string; };
         const variants: Variant[] = [];
-        const media: { line: string; attrs: Record<string,string>; }[] = [];
-        const parseAttrs = (l: string): Record<string,string> => {
-            const out: Record<string,string> = {}; l.replace(/([A-Z0-9-]+)=(("[^"]+")|([^,]+))/g, (_m, k, v) => { const val = String(v).replace(/^"|"$/g,''); out[k]=val; return ''; }); return out;
+        const media: { line: string; attrs: Record<string, string>; }[] = [];
+        const parseAttrs = (l: string): Record<string, string> => {
+            const out: Record<string, string> = {}; l.replace(/([A-Z0-9-]+)=(("[^"]+")|([^,]+))/g, (_m, k, v) => { const val = String(v).replace(/^"|"$/g, ''); out[k] = val; return ''; }); return out;
         };
-        for (let i=0;i<lines.length;i++) {
+        for (let i = 0; i < lines.length; i++) {
             const l = lines[i];
             if (l.startsWith('#EXT-X-MEDIA:')) {
                 media.push({ line: l, attrs: parseAttrs(l) });
             }
             if (l.startsWith('#EXT-X-STREAM-INF:')) {
                 const info = l;
-                const next = lines[i+1] || '';
+                const next = lines[i + 1] || '';
                 if (!next || next.startsWith('#')) continue;
                 const attrs = parseAttrs(info);
                 let h = 0; let bw = 0;
                 if (attrs['RESOLUTION']) {
-                    const m = attrs['RESOLUTION'].match(/(\d+)x(\d+)/); if (m) h = parseInt(m[2],10)||0;
+                    const m = attrs['RESOLUTION'].match(/(\d+)x(\d+)/); if (m) h = parseInt(m[2], 10) || 0;
                 }
-                if (attrs['BANDWIDTH']) bw = parseInt(attrs['BANDWIDTH'],10)||0;
+                if (attrs['BANDWIDTH']) bw = parseInt(attrs['BANDWIDTH'], 10) || 0;
                 // Resolve relative
                 let vUrl = next.trim();
-                try { vUrl = new URL(vUrl, src).toString(); } catch {}
+                try { vUrl = new URL(vUrl, src).toString(); } catch { }
                 variants.push({ url: vUrl, height: h, bandwidth: bw, info });
             }
         }
@@ -4573,10 +5160,10 @@ app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Respon
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
             return res.send(text);
         }
-        variants.sort((a,b)=> (b.height - a.height) || (b.bandwidth - a.bandwidth));
+        variants.sort((a, b) => (b.height - a.height) || (b.bandwidth - a.bandwidth));
         const best = variants[0];
         const header: string[] = ['#EXTM3U'];
-        const copyTags = ['#EXT-X-VERSION','#EXT-X-INDEPENDENT-SEGMENTS'];
+        const copyTags = ['#EXT-X-VERSION', '#EXT-X-INDEPENDENT-SEGMENTS'];
         for (const t of copyTags) { if (text.includes(t)) header.push(t); }
 
         if (multiFlag) {
@@ -4584,7 +5171,7 @@ app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Respon
             const audioGroupsEncountered: Set<string> = new Set();
             const subtitleGroupsEncountered: Set<string> = new Set();
             for (const m of media) {
-                const type = (m.attrs['TYPE']||'').toUpperCase();
+                const type = (m.attrs['TYPE'] || '').toUpperCase();
                 if (type === 'AUDIO') {
                     header.push(m.line);
                     if (m.attrs['GROUP-ID']) audioGroupsEncountered.add(m.attrs['GROUP-ID']);
@@ -4607,10 +5194,10 @@ app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Respon
             let chosenGroup: string | null = null;
             let chosenMediaLine: string | null = null;
             for (const m of media) {
-                const type = (m.attrs['TYPE']||'').toUpperCase();
+                const type = (m.attrs['TYPE'] || '').toUpperCase();
                 if (type !== 'AUDIO') continue;
-                const lang = (m.attrs['LANGUAGE']||'').toLowerCase();
-                const name = (m.attrs['NAME']||'').toLowerCase();
+                const lang = (m.attrs['LANGUAGE'] || '').toLowerCase();
+                const name = (m.attrs['NAME'] || '').toLowerCase();
                 if (lang === langPref || name.includes(langPref)) {
                     chosenGroup = m.attrs['GROUP-ID'] || null;
                     chosenMediaLine = m.line;
@@ -4618,8 +5205,8 @@ app.get(['/vixsynthetic','/vixsynthetic.m3u8'], async (req: Request, res: Respon
                 }
             }
             if (!chosenGroup && media.length) {
-                const firstAudio = media.find(m=> (m.attrs['TYPE']||'').toUpperCase()==='AUDIO');
-                if (firstAudio) { chosenGroup = firstAudio.attrs['GROUP-ID']||null; chosenMediaLine = firstAudio.line; }
+                const firstAudio = media.find(m => (m.attrs['TYPE'] || '').toUpperCase() === 'AUDIO');
+                if (firstAudio) { chosenGroup = firstAudio.attrs['GROUP-ID'] || null; chosenMediaLine = firstAudio.line; }
             }
             if (chosenMediaLine && chosenGroup) header.push(chosenMediaLine);
             let streamInf = best.info;
@@ -4720,7 +5307,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     try {
         const observedIp = getClientIpFromReq(req);
         if (observedIp) vdbg('Observed client IP', { observedIp, reqIp: (req as any).ip, reqIps: (req as any).ips });
-    } catch {}
+    } catch { }
 
     const configString = req.path.split('/')[1];
     debugLog(`Config string extracted: "${configString}" (length: ${configString ? configString.length : 0})`);
@@ -4728,12 +5315,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     // ...
 
     // Parse configuration from URL path segment once (before TV logic)
+    // FIX DEFINITIVO: NON scrivere MAI la config dell'utente nella cache globale!
+    // Ogni utente ha la sua config nel URL, non deve inquinare quella degli altri.
+    // La configCache è per settings del SERVER (env vars), non per config utente.
     if (configString && configString.length > 10 && !configString.startsWith('stream') && !configString.startsWith('meta') && !configString.startsWith('manifest')) {
         const parsedConfig = parseConfigFromArgs(configString);
         if (Object.keys(parsedConfig).length > 0) {
-            debugLog('🔧 Found valid config in URL, updating global cache');
-            Object.assign(configCache, parsedConfig);
-            debugLog('🔧 Updated global config cache:', configCache);
+            debugLog('🔧 Found valid config in URL (NOT updating global cache - user-specific)');
+            // NON FARE PIÙ: Object.assign(configCache, parsedConfig);
+            // La config dell'utente viene passata tramite requestConfig nell'SDK
         }
     }
 
@@ -4881,15 +5471,15 @@ app.get('/live/update', async (req: Request, res: Response) => {
         if (requiredToken && provided !== requiredToken) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
         }
-    // Esegue Live.py immediatamente (se esiste)
-    // Riutilizza executeLiveScript già definita nello scheduler e recupera stdout/stderr
-    const execRes = await (async () => { try { return await (executeLiveScript as any)(); } catch { return undefined; } })();
-    // Subito dopo Live.py: esegui purge per rimuovere eventi vecchi, mantenendo IERI fino alle 08:00 Rome
-    const purgeResult = purgeOldDynamicEvents();
-    // Ricarica sempre i canali dinamici dopo il purge
-    const dyn = loadDynamicChannels(true);
-    const dynPath = getDynamicFilePath();
-    const dynStats = getDynamicFileStats();
+        // Esegue Live.py immediatamente (se esiste)
+        // Riutilizza executeLiveScript già definita nello scheduler e recupera stdout/stderr
+        const execRes = await (async () => { try { return await (executeLiveScript as any)(); } catch { return undefined; } })();
+        // Subito dopo Live.py: esegui purge per rimuovere eventi vecchi, mantenendo IERI fino alle 08:00 Rome
+        const purgeResult = purgeOldDynamicEvents();
+        // Ricarica sempre i canali dinamici dopo il purge
+        const dyn = loadDynamicChannels(true);
+        const dynPath = getDynamicFilePath();
+        const dynStats = getDynamicFileStats();
         // Risposta arricchita con conteggio e uno snippet di stdout/stderr
         const liveStdout: string | undefined = execRes?.stdout ? String(execRes.stdout) : undefined;
         const liveStderr: string | undefined = execRes?.stderr ? String(execRes.stderr) : undefined;
@@ -4899,12 +5489,12 @@ app.get('/live/update', async (req: Request, res: Response) => {
             try {
                 const m = liveStdout.match(/Creati\s+(\d+)\s+eventi\s+dinamici/i);
                 if (m) createdCount = parseInt(m[1], 10);
-            } catch {}
+            } catch { }
         }
         const clip = (s?: string) => s ? (s.length > 800 ? s.slice(-800) : s) : undefined; // prendi ultime 800 chars
         return res.json({
             ok: true,
-            message: `Live.py eseguito (se presente), purge effettuato e canali ricaricati: eventi dinamici=${dyn.length}${createdCount!=null?` (creati=${createdCount})`:''}`,
+            message: `Live.py eseguito (se presente), purge effettuato e canali ricaricati: eventi dinamici=${dyn.length}${createdCount != null ? ` (creati=${createdCount})` : ''}`,
             dynamicCount: dyn.length,
             createdCount,
             purge: purgeResult,
@@ -4950,119 +5540,95 @@ app.get('/live/reload', (_: Request, res: Response) => {
 });
 // =============================================================
 
-// ================= STREAMED FORCED RELOAD ENDPOINT =====================
-// GET /streamed/reload?token=XYZ&force=1
-// Esegue streamed_channels.py una volta (opzionalmente con modalità force che ignora le finestre temporali)
-app.get('/streamed/reload', async (req: Request, res: Response) => {
+// ================= THISNOT RELOAD ENDPOINT ====================
+// Esegue manualmente l'aggiornamento dei canali ThisNot
+app.get('/tn/reload', async (_: Request, res: Response) => {
     try {
-        const requiredToken = process?.env?.STREAMED_RELOAD_TOKEN;
-        const provided = (req.query.token as string) || '';
-        if (requiredToken && provided !== requiredToken) {
-            return res.status(403).json({ ok: false, error: 'Forbidden' });
-        }
-        const force = 'force' in req.query && String(req.query.force).toLowerCase() !== '0';
-        const scriptPath = path.join(__dirname, '..', 'streamed_channels.py');
-        if (!fs.existsSync(scriptPath)) {
-            return res.status(404).json({ ok: false, error: 'streamed_channels.py not found' });
-        }
-        const pythonBin = process.env.PYTHON_BIN || 'python3';
-        const env: any = { ...process.env };
-        try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-        if (force) env.STREAMED_FORCE = '1';
-        const started = Date.now();
-        const { execFile } = require('child_process');
-        const execResult = await new Promise<{ stdout: string; stderr: string; code: number }>(resolve => {
-            const child = execFile(pythonBin, [scriptPath, force ? '--force' : ''], { env }, (err: any, stdout: string, stderr: string) => {
-                resolve({ stdout, stderr, code: err && typeof err.code === 'number' ? err.code : 0 });
-            });
-            child.on('error', (e: any) => {
-                console.log('[STREAMED][RELOAD][ERR]', e?.message || e);
-            });
+        console.log('🔄 [ThisNot] Reload manuale richiesto via endpoint /tn/reload');
+
+        // Importa la funzione di aggiornamento
+        const { updateThisNotChannels } = await import('./utils/thisnotChannels');
+
+        // Esegue l'aggiornamento
+        await updateThisNotChannels();
+
+        // Ricarica i canali dinamici per ottenere il conteggio aggiornato
+        const dyn = loadDynamicChannels(true);
+        const thisnotCount = dyn.filter((c: any) => {
+            const cat = (c.category || '').toString().toLowerCase();
+            return cat === 'thisnot';
+        }).length;
+
+        console.log(`✅ [ThisNot] Reload completato: ${thisnotCount} canali ThisNot attivi`);
+
+        res.json({
+            ok: true,
+            thisnotChannels: thisnotCount,
+            totalDynamicChannels: dyn.length,
+            message: `ThisNot aggiornato con successo! ${thisnotCount} eventi di oggi disponibili.`
         });
-        // Ricarica dynamic in memoria se il file è stato modificato
-        try { invalidateDynamicChannels(); loadDynamicChannels(true); } catch {}
-        const took = Date.now() - started;
-        const clip = (s: string) => s && s.length > 1200 ? s.slice(-1200) : s;
-        return res.json({ ok: true, force, ms: took, stdout: clip(execResult.stdout), stderr: clip(execResult.stderr) });
     } catch (e: any) {
-        return res.status(500).json({ ok: false, error: e?.message || String(e) });
+        console.error('❌ [ThisNot] Errore durante reload:', e);
+        res.status(500).json({
+            ok: false,
+            error: e?.message || String(e),
+            stack: e?.stack
+        });
     }
 });
 // =============================================================
 
-// ================= RBTV FORCED RELOAD ENDPOINT =====================
-// GET /rbtv/reload?token=XYZ&force=1
-// Esegue rbtv_streams.py una volta (opzionalmente con modalità force che ignora le finestre temporali)
-app.get('/rbtv/reload', async (req: Request, res: Response) => {
-    try {
-        const requiredToken = process?.env?.RBTV_RELOAD_TOKEN;
-        const provided = (req.query.token as string) || '';
-        if (requiredToken && provided !== requiredToken) {
-            return res.status(403).json({ ok: false, error: 'Forbidden' });
-        }
-        const force = 'force' in req.query && String(req.query.force).toLowerCase() !== '0';
-        const scriptPath = path.join(__dirname, '..', 'rbtv_streams.py');
-        if (!fs.existsSync(scriptPath)) {
-            return res.status(404).json({ ok: false, error: 'rbtv_streams.py not found' });
-        }
-        const pythonBin = process.env.PYTHON_BIN || 'python3';
-        const env: any = { ...process.env };
-        try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-        if (force) env.RBTV_FORCE = '1';
-        const started = Date.now();
-        const { execFile } = require('child_process');
-        const execResult = await new Promise<{ stdout: string; stderr: string; code: number }>(resolve => {
-            const child = execFile(pythonBin, [scriptPath, force ? '--force' : ''], { env }, (err: any, stdout: string, stderr: string) => {
-                resolve({ stdout, stderr, code: err && typeof err.code === 'number' ? err.code : 0 });
-            });
-            child.on('error', (e: any) => {
-                console.log('[RBTV][RELOAD][ERR]', e?.message || e);
-            });
-        });
-        // Ricarica dynamic in memoria se il file è stato modificato
-        try { invalidateDynamicChannels(); loadDynamicChannels(true); } catch {}
-        const took = Date.now() - started;
-        const clip = (s: string) => s && s.length > 1200 ? s.slice(-1200) : s;
-        return res.json({ ok: true, force, ms: took, stdout: clip(execResult.stdout), stderr: clip(execResult.stderr) });
-    } catch (e: any) {
-        return res.status(500).json({ ok: false, error: e?.message || String(e) });
-    }
-});
+
+
+// ================= STREAMED FORCED RELOAD ENDPOINT (RIMOSSO) =====================
+// ================= RBTV FORCED RELOAD ENDPOINT (RIMOSSO) =====================
+// ================= SPSO FORCED RELOAD ENDPOINT (RIMOSSO) =====================
 // =============================================================
 
-// ================= SPSO FORCED RELOAD ENDPOINT =====================
-// GET /spso/reload?token=XYZ&force=1
-// Esegue spso_streams.py una volta (modalità force opzionale)
-app.get('/spso/reload', async (req: Request, res: Response) => {
+// ================= PPV FORCED RELOAD ENDPOINT =====================
+// GET /ppv/reload?token=XYZ
+// Esegue ppv_streams.py una volta
+app.get('/ppv/reload', async (req: Request, res: Response) => {
     try {
-        const requiredToken = process?.env?.SPSO_RELOAD_TOKEN;
+        const requiredToken = process?.env?.PPV_RELOAD_TOKEN;
         const provided = (req.query.token as string) || '';
         if (requiredToken && provided !== requiredToken) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
         }
-        const force = 'force' in req.query && String(req.query.force).toLowerCase() !== '0';
-        const scriptPath = path.join(__dirname, '..', 'spso_streams.py');
+
+        const scriptPath = path.join(__dirname, '..', 'ppv_streams.py');
         if (!fs.existsSync(scriptPath)) {
-            return res.status(404).json({ ok: false, error: 'spso_streams.py not found' });
+            return res.status(404).json({ ok: false, error: 'ppv_streams.py not found' });
         }
+
         const pythonBin = process.env.PYTHON_BIN || 'python3';
         const env: any = { ...process.env };
-        try { env.DYNAMIC_FILE = getDynamicFilePath(); } catch {}
-        if (force) env.SPSO_FORCE = '1';
+
         const started = Date.now();
         const { execFile } = require('child_process');
+
         const execResult = await new Promise<{ stdout: string; stderr: string; code: number }>(resolve => {
-            const child = execFile(pythonBin, [scriptPath, force ? '--force' : ''], { env }, (err: any, stdout: string, stderr: string) => {
+            const child = execFile(pythonBin, [scriptPath], { env }, (err: any, stdout: string, stderr: string) => {
                 resolve({ stdout, stderr, code: err && typeof err.code === 'number' ? err.code : 0 });
             });
             child.on('error', (e: any) => {
-                console.log('[SPSO][RELOAD][ERR]', e?.message || e);
+                console.log('[PPV][RELOAD][ERR]', e?.message || e);
             });
         });
-        try { invalidateDynamicChannels(); loadDynamicChannels(true); } catch {}
+
+        // Ricarica dynamic in memoria
+        try { invalidateDynamicChannels(); loadDynamicChannels(true); } catch { }
+
         const took = Date.now() - started;
         const clip = (s: string) => s && s.length > 1200 ? s.slice(-1200) : s;
-        return res.json({ ok: true, force, ms: took, stdout: clip(execResult.stdout), stderr: clip(execResult.stderr) });
+
+        return res.json({
+            ok: true,
+            ms: took,
+            stdout: clip(execResult.stdout),
+            stderr: clip(execResult.stderr),
+            channels: loadDynamicChannels(true).filter((c: any) => c.category === 'PPV').length
+        });
     } catch (e: any) {
         return res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
@@ -5079,33 +5645,33 @@ app.get('/amstaff/reload', async (req: Request, res: Response) => {
         if (requiredToken && provided !== requiredToken) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
         }
-        
+
         console.log('[AMSTAFF][RELOAD][API] Manual trigger requested');
         const started = Date.now();
-        
+
         // Importa dinamicamente la funzione di aggiornamento
         const { updateAmstaffChannels } = await import('./utils/amstaffUpdater');
-        
+
         // Esegue l'aggiornamento
         const channelsUpdated = await updateAmstaffChannels();
-        
+
         const took = Date.now() - started;
-        
+
         // Forza reload di tv_channels.json dopo l'update
         try {
             _loadStaticChannelsIfChanged(true);
         } catch (e) {
             console.warn('[AMSTAFF][RELOAD][API] Warning: static reload failed', e);
         }
-        
+
         // Conta canali con staticUrlMpd
         let mpdCount = 0;
         for (const c of staticBaseChannels) {
             if (c && (c as any).staticUrlMpd) mpdCount++;
         }
-        
+
         console.log(`[AMSTAFF][RELOAD][API] Updated ${channelsUpdated} channels in ${took}ms, total staticUrlMpd=${mpdCount}`);
-        
+
         return res.json({
             ok: true,
             channelsUpdated,
@@ -5142,7 +5708,7 @@ app.get('/static/reload', (req: Request, res: Response) => {
             if (c && (c as any).staticUrlMpd) mpdCount++;
         }
         const total = staticBaseChannels.length;
-        console.log(`[TV][RELOAD][API] /static/reload changed=${changed} total=${total} pdUrlF=${pdCount} staticUrlMpd=${mpdCount} hash=${_staticFileLastHash.slice(0,12)}`);
+        console.log(`[TV][RELOAD][API] /static/reload changed=${changed} total=${total} pdUrlF=${pdCount} staticUrlMpd=${mpdCount} hash=${_staticFileLastHash.slice(0, 12)}`);
         return res.json({
             ok: true,
             changed,
@@ -5167,11 +5733,11 @@ app.get('/rm/update', async (req: Request, res: Response) => {
         if (requiredToken && provided !== requiredToken) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
         }
-        
+
         console.log('[RM][API] Manual update triggered via /rm/update');
         const { updateRmChannels } = await import('./utils/rmUpdater');
         const updated = await updateRmChannels();
-        
+
         return res.json({
             ok: true,
             updated: updated,
@@ -5193,11 +5759,11 @@ app.get('/amstaff/update', async (req: Request, res: Response) => {
         if (requiredToken && provided !== requiredToken) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
         }
-        
+
         console.log('[AMSTAFF][API] Manual update triggered via /amstaff/update');
         const { updateAmstaffChannels } = await import('./utils/amstaffUpdater');
         const updated = await updateAmstaffChannels();
-        
+
         return res.json({
             ok: true,
             updated: updated,
@@ -5210,8 +5776,176 @@ app.get('/amstaff/update', async (req: Request, res: Response) => {
 });
 // =============================================================
 
+// ================= MANUAL MPDZ UPDATE ENDPOINT ==============
+// GET /mpdz/update - Forza aggiornamento canali MPDz ()
+app.get('/mpdz/update', async (req: Request, res: Response) => {
+    try {
+        console.log('[MPDz][API] Manual update triggered via /mpdz/update');
+        const { updateMpdzChannels } = await import('./utils/mpdzUpdater');
+        const count = await updateMpdzChannels();
+
+        return res.json({
+            ok: true,
+            count,
+            message: `Updated ${count} MPDz channels in tv_channels.json`
+        });
+    } catch (e: any) {
+        console.error('[MPDz][API] Error:', e);
+        return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+});
+// =============================================================
+
+// ================= MANUAL MPDX UPDATE ENDPOINT ==============
+// GET /mpdx/update - Forza aggiornamento canali MPDx
+app.get('/mpdx/update', async (req: Request, res: Response) => {
+    try {
+        console.log('[MPDx][API] Manual update triggered via /mpdx/update');
+        const { updateMpdxChannels } = await import('./utils/mpdxUpdater');
+        const count = await updateMpdxChannels();
+
+        return res.json({
+            ok: true,
+            count,
+            message: `Updated ${count} MPDx channels in tv_channels.json`
+        });
+    } catch (e: any) {
+        console.error('[MPDx][API] Error:', e);
+        return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+});
+// =============================================================
+
+// ================= MANUAL ZEVENTI UPDATE ENDPOINT ==============
+// GET /zeventi/update - Forza aggiornamento canali Z-Eventi (serieaz + coppez)
+app.get('/zeventi/update', async (req: Request, res: Response) => {
+    try {
+        console.log('[Z-Eventi][API] Manual update triggered via /zeventi/update');
+        const { updateZEventiChannels } = await import('./utils/zEventiUpdater');
+        const count = await updateZEventiChannels();
+
+        // Force reload dynamic channels
+        loadDynamicChannels(true);
+
+        return res.json({
+            ok: true,
+            count,
+            message: `Updated ${count} Z-Eventi channels`
+        });
+    } catch (e: any) {
+        console.error('[Z-Eventi][API] Error:', e);
+        return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+});
+// =============================================================
+
 // ================= MANUAL PURGE ENDPOINT =====================
 // Esegue la stessa logica delle 02:00: rimuove dal file gli eventi del giorno precedente
+app.get('/static/fupdate', async (req: Request, res: Response) => {
+    try {
+        const htmlLog: string[] = [];
+        htmlLog.push('<html><body style="font-family: sans-serif;">');
+        htmlLog.push('<h1>🚀 Force Update All Channels</h1>');
+        htmlLog.push('<ul>');
+
+        let totalUpdates = 0;
+
+        // Amstaff (skipReload=true per evitare reload multipli)
+        try {
+            const { updateAmstaffChannels } = await import('./utils/amstaffUpdater');
+            const c = await updateAmstaffChannels(true, true); // force=true, skipReload=true
+            totalUpdates += c;
+            htmlLog.push(`<li>✅ <strong>Amstaff</strong>: ${c} channels updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>Amstaff</strong>: Error: ${e.message}</li>`);
+        }
+
+        // RM (MPD2)
+        try {
+            const { updateRmChannels } = await import('./utils/rmUpdater');
+            const c = await updateRmChannels(true, true); // force=true, skipReload=true
+            totalUpdates += c;
+            htmlLog.push(`<li>✅ <strong>RM (MPD2)</strong>: ${c} channels updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>RM (MPD2)</strong>: Error: ${e.message}</li>`);
+        }
+
+        // MPDz
+        try {
+            const { updateMpdzChannels } = await import('./utils/mpdzUpdater');
+            const c = await updateMpdzChannels(true, true); // force=true, skipReload=true
+            totalUpdates += c;
+            htmlLog.push(`<li>✅ <strong>MPDz</strong>: ${c} channels updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>MPDz</strong>: Error: ${e.message}</li>`);
+        }
+
+        // MPDx
+        try {
+            const { updateMpdxChannels } = await import('./utils/mpdxUpdater');
+            const c = await updateMpdxChannels(true, true); // force=true, skipReload=true
+            totalUpdates += c;
+            htmlLog.push(`<li>✅ <strong>MPDx</strong>: ${c} channels updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>MPDx</strong>: Error: ${e.message}</li>`);
+        }
+
+        // ThisNot (non scrive su tv_channels.json, scrive su /tmp/thisnot_channels.json)
+        try {
+            const { updateThisNotChannels } = await import('./utils/thisnotChannels');
+            await updateThisNotChannels();
+            htmlLog.push(`<li>✅ <strong>ThisNot</strong>: Updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>ThisNot</strong>: Error: ${e.message}</li>`);
+        }
+
+        // Z-Eventi (scrive su /tmp/z_eventi.json)
+        try {
+            const { updateZEventiChannels } = await import('./utils/zEventiUpdater');
+            const c = await updateZEventiChannels();
+            htmlLog.push(`<li>✅ <strong>Z-Eventi</strong>: ${c} channels updated (FORCED)</li>`);
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>Z-Eventi</strong>: Error: ${e.message}</li>`);
+        }
+
+        htmlLog.push('</ul>');
+
+        // === UNICO RELOAD FINALE ===
+        htmlLog.push('<h2>🔄 Final Reload</h2>');
+        try {
+            // Forza reload dei canali statici in memoria
+            _loadStaticChannelsIfChanged(true);
+
+            // Conta canali con vari campi MPD
+            let mpdCount = 0, mpd2Count = 0, mpdzCount = 0, mpdxCount = 0;
+            for (const c of staticBaseChannels) {
+                if (c && (c as any).staticUrlMpd) mpdCount++;
+                if (c && (c as any).staticUrlMpd2) mpd2Count++;
+                if (c && (c as any).staticUrlMpdz) mpdzCount++;
+                if (c && (c as any).staticUrlMpdx) mpdxCount++;
+            }
+
+            htmlLog.push(`<p>✅ <strong>Reload completato!</strong></p>`);
+            htmlLog.push(`<ul>`);
+            htmlLog.push(`<li>Total channels in memory: <strong>${staticBaseChannels.length}</strong></li>`);
+            htmlLog.push(`<li>staticUrlMpd (Amstaff): <strong>${mpdCount}</strong></li>`);
+            htmlLog.push(`<li>staticUrlMpd2 (RM): <strong>${mpd2Count}</strong></li>`);
+            htmlLog.push(`<li>staticUrlMpdz: <strong>${mpdzCount}</strong></li>`);
+            htmlLog.push(`<li>staticUrlMpdx: <strong>${mpdxCount}</strong></li>`);
+            htmlLog.push(`</ul>`);
+            htmlLog.push(`<p>Total updates this run: <strong>${totalUpdates}</strong></p>`);
+        } catch (e: any) {
+            htmlLog.push(`<p>❌ Reload error: ${e.message}</p>`);
+        }
+
+        htmlLog.push('<p><em>All updaters completed and channels reloaded in memory.</em></p>');
+        htmlLog.push('</body></html>');
+        res.send(htmlLog.join(''));
+    } catch (e: any) {
+        res.status(500).send(`Global Error: ${e.message}`);
+    }
+});
+
 app.get('/live/purge', (req: Request, res: Response) => {
     try {
         const result = purgeOldDynamicEvents();
@@ -5271,7 +6005,7 @@ setTimeout(() => {
         const beforeRaw = (() => {
             try {
                 if (!dynPath || !fs.existsSync(dynPath)) return 0;
-                const raw = JSON.parse(fs.readFileSync(dynPath,'utf-8'));
+                const raw = JSON.parse(fs.readFileSync(dynPath, 'utf-8'));
                 return Array.isArray(raw) ? raw.length : 0;
             } catch { return 0; }
         })();
@@ -5279,7 +6013,7 @@ setTimeout(() => {
         const filtered = loadDynamicChannels(true);
         const after = filtered.length;
         if (beforeRaw && after <= beforeRaw) {
-            console.log(`[STARTUP][PURGE-CHECK] path=${dynPath} before=${beforeRaw} afterFilter=${after} removed=${beforeRaw-after}`);
+            console.log(`[STARTUP][PURGE-CHECK] path=${dynPath} before=${beforeRaw} afterFilter=${after} removed=${beforeRaw - after}`);
         } else {
             console.log(`[STARTUP][PURGE-CHECK] path=${dynPath} count=${after} (no removals or file empty)`);
         }
@@ -5323,7 +6057,7 @@ if (!fs.existsSync(LIVE_LOG_DIR)) {
 }
 
 const liveRuns: ScheduledRun[] = [
-    { hour: 8,  minute: 10 }, // 08:10
+    { hour: 8, minute: 10 }, // 08:10
     { hour: 10, minute: 10 }, // 10:10
     { hour: 12, minute: 10 }, // 12:10
     { hour: 14, minute: 10 }, // 14:10
@@ -5331,10 +6065,10 @@ const liveRuns: ScheduledRun[] = [
     { hour: 18, minute: 10 }, // 18:10
     { hour: 20, minute: 10 }, // 20:10
     { hour: 22, minute: 10 }, // 22:10
-    { hour: 0,  minute: 10 }, // 00:10
-    { hour: 2,  minute: 10 }, // 02:10
-    { hour: 4,  minute: 10 }, // 04:10
-    { hour: 6,  minute: 10 }  // 06:10
+    { hour: 0, minute: 10 }, // 00:10
+    { hour: 2, minute: 10 }, // 02:10
+    { hour: 4, minute: 10 }, // 04:10
+    { hour: 6, minute: 10 }  // 06:10
 ];
 
 function logLive(msg: string, ...extra: any[]) {
@@ -5495,7 +6229,7 @@ setTimeout(() => scheduleNextAutoPurge(), 7000);
 try {
     const dynamicFilePath = path.join(__dirname, '../config/dynamic_channels.json');
     if (fs.existsSync(dynamicFilePath)) {
-    fs.watch(dynamicFilePath, { persistent: false }, (evt: any) => {
+        fs.watch(dynamicFilePath, { persistent: false }, (evt: any) => {
             if (evt === 'change') {
                 console.log('🔄 Detected change in dynamic_channels.json -> invalidate & reload');
                 invalidateDynamicChannels();
@@ -5554,3 +6288,135 @@ try {
     console.error('❌ Errore avvio RM updater:', e);
 }
 // ====================================================================
+
+
+
+// =============== THISNOT AUTO-UPDATER ==============================
+// Avvia aggiornamento automatico canali ThisNot ogni 2 ore
+try {
+    startThisNotUpdater(2);
+    console.log('✅ ThisNot auto-updater attivato (ogni 2 ore)');
+} catch (e) {
+    console.error('❌ Errore avvio ThisNot updater:', e);
+}
+// ====================================================================
+
+// =============== MPDZ AUTO-UPDATER ==============================
+// Avvia aggiornamento automatico canali MPDz () ogni 23 minuti
+try {
+    startMpdzScheduler(1380000);
+    console.log('✅ MPDz auto-updater attivato (ogni 23 min)');
+} catch (e) {
+    console.error('❌ Errore avvio MPDz updater:', e);
+}
+// ====================================================================
+
+// =============== MPDX AUTO-UPDATER ==============================
+// Avvia aggiornamento automatico canali MPDx ( worker) ogni 23 minuti
+try {
+    startMpdxScheduler(1380000);
+    console.log('✅ MPDx auto-updater attivato (ogni 23 min)');
+} catch (e) {
+    console.error('❌ Errore avvio MPDx updater:', e);
+}
+// ====================================================================
+
+// =============== ZEVENTI AUTO-UPDATER ==============================
+// Avvia aggiornamento automatico canali Z-Eventi (serieaz + coppez) ogni 25 minuti
+try {
+    startZEventiScheduler(1500000);
+    console.log('✅ Z-Eventi auto-updater attivato (ogni 25 min)');
+} catch (e) {
+    console.error('❌ Errore avvio Z-Eventi updater:', e);
+}
+// ====================================================================
+
+// === X-Eventi playlist enrichment & Endpoint ===
+(() => {
+    try {
+        // Check env var enabling
+        const xUrl = process.env.X_EVENTI_URL;
+
+        const pythonBin = process.env.PYTHON_BIN || 'python3';
+        const scriptPath = path.join(__dirname, '..', 'x_eventi.py');
+
+        // Funzione helper per eseguire lo script
+        // Restituisce una promise per poter attendere nell'endpoint
+        const runXEventiUpdate = (tag: string): Promise<{ ok: boolean; output: string; error: string }> => {
+            return new Promise(resolve => {
+                if (!fs.existsSync(scriptPath)) {
+                    console.log('[X-Events][INIT] script non trovato', scriptPath);
+                    resolve({ ok: false, output: '', error: 'Script not found' });
+                    return;
+                }
+
+                const env: any = { ...process.env };
+                const t0 = Date.now();
+                const child = spawn(pythonBin, [scriptPath], { env });
+                let out = ''; let err = '';
+
+                child.stdout.on('data', d => out += d.toString());
+                child.stderr.on('data', d => err += d.toString());
+
+                child.on('close', code => {
+                    const ms = Date.now() - t0;
+                    if (out.trim()) out.split(/\r?\n/).forEach(l => console.log('[X-Events][OUT]', l));
+                    if (err.trim()) err.split(/\r?\n/).forEach(l => console.warn('[X-Events][ERR]', l));
+                    console.log(`[X-Events][RUN] done code=${code} ms=${ms}`);
+
+                    if (code === 0) {
+                        // Ricarica dynamic channels per rendere effettive le modifiche
+                        loadDynamicChannels(true);
+                        resolve({ ok: true, output: out, error: err });
+                    } else {
+                        resolve({ ok: false, output: out, error: err || `Exit code ${code}` });
+                    }
+                });
+
+                child.on('error', (e) => {
+                    console.error('[X-Events] Spawn error:', e);
+                    resolve({ ok: false, output: out, error: e.message });
+                });
+            });
+        };
+
+        // 1. Configurazione Endpoint manuale (aggiunto all'app Express esistente)
+        if (app) {
+            app.get('/xeventi/update', async (req: Request, res: Response) => {
+                console.log('[X-Events][API] Trigger manual update...');
+                try {
+                    const result = await runXEventiUpdate('manual-api');
+                    res.json({ success: result.ok, output: result.output, error: result.error });
+                } catch (e: any) {
+                    res.status(500).json({ success: false, error: e.message });
+                }
+            });
+            console.log('[X-Events][INIT] Endpoint /xeventi/update registrato');
+        } else {
+            console.warn('[X-Events][INIT] VARNING: app Express non trovata, endpoint non registrato');
+        }
+
+        // 2. Scheduler Automatico (solo se URL presente)
+        if (xUrl) {
+            // Initial run with delay 90s
+            setTimeout(() => {
+                console.log('[X-Events][INIT] Starting initial run (90s delayed)...');
+                runXEventiUpdate('init');
+            }, 90000);
+
+            // Scheduler: Run every 20 minutes
+            const X_INTERVAL = 20 * 60 * 1000;
+            setInterval(() => {
+                console.log(`[X-Events][SCHEDULER] Triggering scheduled update...`);
+                runXEventiUpdate('scheduled');
+            }, X_INTERVAL);
+
+            console.log(`[X-Events][INIT] Scheduler attivo: aggiornamento ogni ${X_INTERVAL / 1000}s`);
+        } else {
+            console.log('[X-Events][INIT] X_EVENTI_URL non presente, scheduler automatico disabilitato.');
+        }
+
+    } catch (e) {
+        console.log('[X-Events][INIT][ERR]', (e as any)?.message || e);
+    }
+})();

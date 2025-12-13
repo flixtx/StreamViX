@@ -27,25 +27,32 @@ async function invokePythonScraper(args: string[]): Promise<any> {
 
         pythonProcess.stderr.on('data', (data: Buffer) => {
             stderr += data.toString();
+            // Log stderr immediatamente per errori AnimeUnity
+            const stderrLine = data.toString().trim();
+            if (stderrLine.includes('[AnimeUnity][ERROR]') || stderrLine.includes('[AnimeUnity][WARN]')) {
+                console.error(stderrLine);
+            }
         });
 
         pythonProcess.on('close', (code: number) => {
             if (code !== 0) {
-                console.error(`Python script exited with code ${code}`);
-                console.error(stderr);
+                console.error(`[AnimeUnity][PY] Python script exited with code ${code}`);
+                if (stderr) {
+                    console.error(`[AnimeUnity][PY] Error details: ${stderr}`);
+                }
                 return reject(new Error(`Python script error: ${stderr}`));
             }
             try {
                 resolve(JSON.parse(stdout));
             } catch (e) {
-                console.error('Failed to parse Python script output:');
+                console.error('[AnimeUnity][PY] Failed to parse Python script output:');
                 console.error(stdout);
                 reject(new Error('Failed to parse Python script output.'));
             }
         });
 
         pythonProcess.on('error', (err: Error) => {
-            console.error('Failed to start Python script:', err);
+            console.error('[AnimeUnity][PY] Failed to start Python script:', err);
             reject(err);
         });
     });
@@ -83,7 +90,7 @@ async function getEnglishTitleFromAnyId(id: string, type: 'imdb'|'tmdb'|'kitsu'|
     if (!tmdbKey) throw new Error('TMDB_API_KEY non configurata');
     const imdbIdOnly = id.split(':')[0];
     const { getTmdbIdFromImdbId } = await import('../extractor');
-    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey);
+    tmdbId = await getTmdbIdFromImdbId(imdbIdOnly, tmdbKey, 'tv');
     if (!tmdbId) throw new Error('TMDB ID non trovato per IMDB: ' + id);
     try {
       const haglundResp = await (await fetch(`https://arm.haglund.dev/api/v2/themoviedb?id=${tmdbId}&include=kitsu,myanimelist`)).json();
@@ -222,6 +229,15 @@ const exactMap: Record<string,string> = {
 
     "Ranma \u00bd (2024) Season 2": "Ranma \u00bd (2024) 2",
     "Ranma1/2 (2024) Season 2": "Ranma \u00bd (2024) 2",
+
+
+        "Link Click Season 2": "Link Click 2",
+
+
+
+        "K: SEVEN STORIES Lost Small World - Outside the Cage - ": "K: Seven Stories Movie 4 - Lost Small World - Ori no Mukou ni",
+
+
 
 
     // << AUTO-INSERT-EXACT >> (non rimuovere questo commento)
@@ -653,8 +669,8 @@ export class AnimeUnityProvider {
       // 2. Fallback MP4 policy:
       //    - Sempre se preferMp4=true
       //    - Oppure se HLS ha dato 403 (hls403) e non abbiamo stream HLS
-      //    - In caso hls403 richiede MFP configurato (mfpUrl + mfpPassword) per sicurezza
-      const mfpConfigured = !!(this.config.mfpUrl && this.config.mfpPassword);
+      //    - In caso hls403 richiede MFP URL configurato
+      const mfpConfigured = !!this.config.mfpUrl;
       const allowMp4 = preferMp4 || (hls403 && !added);
       if (allowMp4 && streamResult.mp4_url) {
         if (!preferMp4 && hls403 && !mfpConfigured) {

@@ -301,53 +301,63 @@ function landingTemplate(manifest: any) {
 		// We'll collect auto-generated options, but skip tmdbApiKey & personalTmdbKey here to custom place them at top later
 		manifest.config.forEach((elem: any) => {
 			const key = elem.key
-				if (["text", "number", "password"].includes(elem.type)) {
-					if (key === 'tmdbApiKey') {
-						// Remove custom TMDB key field from UI entirely (use default only)
-						return;
-					}
-					const isRequired = elem.required ? ' required' : ''
-					const defaultHTML = elem.default ? ` value="${elem.default}"` : ''
-					const inputType = elem.type
-					options += `
+			if (["text", "number", "password"].includes(elem.type)) {
+				if (key === 'tmdbApiKey') {
+					// Remove custom TMDB key field from UI entirely (use default only)
+					return;
+				}
+				const isRequired = elem.required ? ' required' : ''
+				const defaultHTML = elem.default ? ` value="${elem.default}"` : ''
+				const inputType = elem.type
+				options += `
 					<div class="form-element">
 						<div class="label-to-top">${elem.title}</div>
 						<input type="${inputType}" id="${key}" name="${key}" class="full-width"${defaultHTML}${isRequired}/>
 					</div>
 					`
-				} else if (elem.type === 'checkbox') {
-					// Skip only personalTmdbKey (custom placement); mediaflowMaster & localMode will be moved later
-					if (key === 'personalTmdbKey') return; // removed from UI
-					// Custom pretty toggle for known keys
-						const toggleMap: any = {
-						'disableVixsrc': { title: 'VixSrc 🍿', invert: true },
-						'disableLiveTv': { title: 'Live TV 📺 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Molti canali hanno bisogno di MFP)</span>', invert: true },
-						'animeunityEnabled': { title: 'Anime Unity ⛩️ - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
-						'animesaturnEnabled': { title: 'Anime Saturn 🪐 - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
-						'animeworldEnabled': { title: 'Anime World 🌍 - 🔓', invert: false },
-						'guardaserieEnabled': { title: 'GuardaSerie 🎥 - 🔓', invert: false },
-						'guardahdEnabled': { title: 'GuardaHD 🎬 - 🔓', invert: false },
-						'eurostreamingEnabled': { title: 'Eurostreaming ▶️ - 🔓 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Lento🐌)</span>', invert: false },
-						'cb01Enabled': { title: 'CB01 🎞️ - 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Inserisci MFP per abilitare)</span>', invert: false },
-						'streamingwatchEnabled': { title: 'StreamingWatch 📼 - 🔓', invert: false },
-							'tvtapProxyEnabled': { title: 'TvTap NO MFP 🔓', invert: false },
-							'vavooNoMfpEnabled': { title: 'Vavoo NO MFP 🔓', invert: false },
-							'mediaflowMaster': { title: 'MediaflowProxy 🔄', invert: false },
-					}
-						if (toggleMap[key]) {
-						const t = toggleMap[key];
-						// Determine checked from elem.default boolean if provided; default visually ON
-						const hasDefault = (typeof (elem as any).default === 'boolean');
-						// For inverted toggles (disable*), show ON when default=false (i.e., feature enabled)
-						let isChecked = hasDefault ? (t.invert ? !((elem as any).default as boolean) : !!(elem as any).default) : true;
-						// Force Eurostreaming OFF by default (unless explicit default true)
-							if (key === 'eurostreamingEnabled' && !hasDefault) isChecked = false;
-						const checkedAttr = isChecked ? ' checked' : '';
-						const extraAttr = key==='mediaflowMaster' ? ' data-master-mfp="1"' : '';
-						const extraAttrTmdb = key==='personalTmdbKey' ? ' data-personal-tmdb="1"' : '';
-							// (Rimossa vecchia iniezione pills Local/FHD - verrà creato sotto-menu dedicato)
-							let extraLocal = '';
-							options += `
+			} else if (elem.type === 'checkbox') {
+				// Skip only personalTmdbKey (custom placement); mediaflowMaster & localMode will be moved later
+				if (key === 'personalTmdbKey') return; // removed from UI
+				// Sub-menu items: create hidden inputs to store their values from manifest
+				if (['animeunityAuto', 'animeunityFhd', 'vixDirect', 'vixDirectFhd', 'vixProxy', 'vixProxyFhd'].includes(key)) {
+					const isChecked = (typeof (elem as any).default === 'boolean') && ((elem as any).default as boolean);
+					const checkedAttr = isChecked ? ' checked' : '';
+					options += `<input type="checkbox" id="hidden_${key}" data-config-key="${key}" style="display:none;"${checkedAttr} />`;
+					return;
+				}
+				// Custom pretty toggle for known keys
+				const toggleMap: any = {
+					'disableVixsrc': { title: 'VixSrc 🍿', invert: true },
+					'disableLiveTv': { title: 'Live TV 📺 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Molti canali hanno bisogno di MFP)</span>', invert: true },
+					'animeunityEnabled': { title: 'Anime Unity ⛩️ - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
+					'animesaturnEnabled': { title: 'Anime Saturn 🪐 - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
+					'animeworldEnabled': { title: 'Anime World 🌍 - 🔓', invert: false },
+					'guardaserieEnabled': { title: 'GuardaSerie 🎥 - 🔓', invert: false },
+					'guardoserieEnabled': { title: 'Guardoserie 📼 - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">Senza Proxy solo player esterno</span>', invert: false },
+					'guardaflixEnabled': { title: 'Guardaflix 📼 - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">Senza Proxy solo player esterno</span>', invert: false },
+					'guardahdEnabled': { title: 'GuardaHD 🎬 - 🔓', invert: false },
+					'eurostreamingEnabled': { title: 'Eurostreaming ▶️ - 🔓 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Lento🐌)</span>', invert: false },
+					'loonexEnabled': { title: 'Loonex 🎬 - 🔓', invert: false },
+					'toonitaliaEnabled': { title: 'ToonItalia 🎨 - 🔒', invert: false },
+					'cb01Enabled': { title: 'CB01 🎞️ - 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Inserisci Proxy URL per abilitare)</span>', invert: false },
+					// 'tvtapProxyEnabled': { title: 'TvTap NO MFP 🔓', invert: false }, // NASCOSTO
+					'vavooNoMfpEnabled': { title: 'Vavoo NO MFP 🔓', invert: false },
+					'mediaflowMaster': { title: 'EasyProxy o MediaFlowProxy ☂️', invert: false },
+				}
+				if (toggleMap[key]) {
+					const t = toggleMap[key];
+					// Determine checked from elem.default boolean if provided; default visually ON
+					const hasDefault = (typeof (elem as any).default === 'boolean');
+					// For inverted toggles (disable*), show ON when default=false (i.e., feature enabled)
+					let isChecked = hasDefault ? (t.invert ? !((elem as any).default as boolean) : !!(elem as any).default) : true;
+					// Force Eurostreaming & Loonex OFF by default (unless explicit default true)
+					if ((key === 'eurostreamingEnabled' || key === 'loonexEnabled') && !hasDefault) isChecked = false;
+					const checkedAttr = isChecked ? ' checked' : '';
+					const extraAttr = key === 'mediaflowMaster' ? ' data-master-mfp="1"' : '';
+					const extraAttrTmdb = key === 'personalTmdbKey' ? ' data-personal-tmdb="1"' : '';
+					// (Rimossa vecchia iniezione pills Local/FHD - verrà creato sotto-menu dedicato)
+					let extraLocal = '';
+					options += `
 							<div class="form-element"${extraAttr}${extraAttrTmdb}>
 								<div class="toggle-row" data-toggle-row="${key}">
 									<span class="toggle-title">${t.title}${extraLocal}</span>
@@ -362,19 +372,19 @@ function landingTemplate(manifest: any) {
 								</div>
 							</div>
 							`
-					} else {
-						// Support boolean default as well as legacy 'checked'
-						const isChecked = (typeof (elem as any).default === 'boolean')
-							? (((elem as any).default as boolean) ? ' checked' : '')
-							: (elem.default === 'checked' ? ' checked' : '')
-						options += `
+				} else {
+					// Support boolean default as well as legacy 'checked'
+					const isChecked = (typeof (elem as any).default === 'boolean')
+						? (((elem as any).default as boolean) ? ' checked' : '')
+						: (elem.default === 'checked' ? ' checked' : '')
+					options += `
 						<div class="form-element">
 							<label for="${key}">
 								<input type="checkbox" id="${key}" name="${key}"${isChecked}> <span class="label-to-right">${elem.title}</span>
 							</label>
 						</div>
 						`
-					}
+				}
 			} else if (elem.type === 'select') {
 				const defaultValue = elem.default || (elem.options || [])[0]
 				options += `<div class="form-element">
@@ -416,8 +426,10 @@ function landingTemplate(manifest: any) {
 				<div id="liveTvSubToggles" style="display:none; margin:0.5rem 0 1rem 0; padding:0.6rem 0.8rem; border:1px dashed rgba(140,82,255,0.6); border-radius:8px;">
 					<p style="margin:0 0 0.5rem 0; font-size:0.95rem; color:#c9b3ff; font-weight:600; text-align:center;">Opzioni Live TV</p>
 					<!-- TvTap & Vavoo toggles will already be present in form; this container just groups them visually -->
+					<p style="margin:0.5rem 0 0 0; font-size:0.7rem; color:#f59e0b; font-weight:500; text-align:center; line-height:1.4;">⚠️ NB. Utilizzare VLC come player esterno nel caso in cui i flussi MPD non fossero riproducibili con il player di Stremio</p>
 				</div>
-				${manifest.__resolvedAddonBase ? (() => { const _raw = manifest.__resolvedAddonBase; const _host = _raw.replace(/^https?:\/\//,''); const _isFallback = /streamvix\.hayd\.uk/.test(_raw); return `<div id="svxAddonBaseBadge" style="text-align:center; margin:-0.25rem 0 1.1rem 0;">
+				${manifest.__resolvedAddonBase ? (() => {
+					const _raw = manifest.__resolvedAddonBase; const _host = _raw.replace(/^https?:\/\//, ''); const _isFallback = /streamvix\.hayd\.uk/.test(_raw); return `<div id="svxAddonBaseBadge" style="text-align:center; margin:-0.25rem 0 1.1rem 0;">
 					<span style=\"display:inline-block; padding:0.35rem 0.75rem; background:rgba(0,0,0,0.45); border:1px solid rgba(140,82,255,0.65); border-radius:14px; font-size:0.70rem; letter-spacing:0.05em; font-weight:600; color:#c9b3ff;\" title=\"Addon Base URL risolta all'avvio\">Addon Base URL per Vix FHD: <span style='color:#00c16e;'>${_host}</span><a href=\"https://github.com/qwertyuiop8899/StreamViX/blob/main/README.md\" target=\"_blank\" style=\"text-decoration:none; margin-left:6px; color:#8c52ff;\">📖 README</a></span>
 				</div>` })() : ''}
 			</form>
@@ -445,9 +457,14 @@ function landingTemplate(manifest: any) {
 							var val = !!el.checked;
 							config[cfgKey] = invert ? !val : val;
 						} else {
-							config[key] = el.value;
+							config[key] = el.value.trim();
 						}
 					});
+					// If mediaflowMaster is disabled, ensure we don't send partial/stale MFP config
+					if (!config['mediaflowMaster']) {
+						delete config['mediaFlowProxyUrl'];
+						delete config['mediaFlowProxyPassword'];
+					}
 					// (addonBase input removed – server resolved; nothing to store)
 					// tmdbApiKey always kept (UI hidden)
 					return config;
@@ -524,6 +541,13 @@ function landingTemplate(manifest: any) {
 							auWrap.parentNode.insertBefore(auSub, auWrap.nextSibling);
 							var auAuto = document.getElementById('animeunityAutoToggle');
 							var auFhd = document.getElementById('animeunityFhdToggle');
+							// Restore state from hidden config fields (populated by manifest from URL)
+							try {
+								var hiddenAuto = document.getElementById('hidden_animeunityAuto');
+								var hiddenFhd = document.getElementById('hidden_animeunityFhd');
+								if (auAuto && hiddenAuto && hiddenAuto.type === 'checkbox') auAuto.checked = hiddenAuto.checked;
+								if (auFhd && hiddenFhd && hiddenFhd.type === 'checkbox') auFhd.checked = hiddenFhd.checked;
+							} catch(e) { console.warn('AnimeUnity state restore failed:', e); }
 							function updateAuVisual(){
 								var info = document.getElementById('animeunityDefaultMsg');
 								if (!info) return;
@@ -532,7 +556,17 @@ function landingTemplate(manifest: any) {
 								if (auFhd && auFhd.checked) active.push('FHD');
 								if (active.length === 0) info.textContent = 'Nessuna selezione = SOLO AUTO'; else info.textContent = 'Modalità: ' + active.join(', ');
 							}
-							[auAuto, auFhd].forEach(function(el){ if (el) el.addEventListener('change', function(){ updateAuVisual(); if (typeof window.updateLink==='function') window.updateLink(); }); });
+							[auAuto, auFhd].forEach(function(el){ 
+								if (el) el.addEventListener('change', function(){ 
+									updateAuVisual(); 
+									// Sync hidden inputs for config persistence
+									var hiddenAuto = document.getElementById('hidden_animeunityAuto');
+									var hiddenFhd = document.getElementById('hidden_animeunityFhd');
+									if (hiddenAuto && auAuto) hiddenAuto.checked = auAuto.checked;
+									if (hiddenFhd && auFhd) hiddenFhd.checked = auFhd.checked;
+									if (typeof window.updateLink==='function') window.updateLink(); 
+								}); 
+							});
 							updateAuVisual();
 						}
 					}
@@ -559,8 +593,11 @@ function landingTemplate(manifest: any) {
 				var animeUnityRow = animeUnityEl ? animeUnityEl.closest('[data-toggle-row]') : null;
 				var cb01El = document.getElementById('cb01Enabled');
 				var cb01Row = cb01El ? cb01El.closest('[data-toggle-row]') : null;
+				var toonitaliaEl = document.getElementById('toonitaliaEnabled');
+				var toonitaliaRow = toonitaliaEl ? toonitaliaEl.closest('[data-toggle-row]') : null;
 				var storedVixsrcState = null; // remember previous user choice
 				var storedCb01State = null; // remember previous cb01 state
+				var storedToonitaliaState = null; // remember previous toonitalia state
 				function syncMfp(){
 					var on = mfpMaster ? mfpMaster.checked : false; // default OFF
 					var inputsFilled = mfpUrlInput && mfpPwdInput && mfpUrlInput.value.trim() !== '' && mfpPwdInput.value.trim() !== '';
@@ -570,6 +607,8 @@ function landingTemplate(manifest: any) {
 
 					if (mfpUrlEl) mfpUrlEl.style.display = on ? 'block':'none';
 					if (mfpPwdEl) mfpPwdEl.style.display = on ? 'block':'none';
+					// (Clearing logic removed: we now filter these out in buildConfigFromForm if master is OFF)
+					
 					if (animeUnityEl){
 						// AnimeUnity ora sempre disponibile come AnimeWorld (nessun gating MFP)
 						if (animeUnityRow) {
@@ -589,7 +628,9 @@ function landingTemplate(manifest: any) {
 					// Sync Local pill availability when VixSrc gating changes
 					try { if (typeof updateLocalAvailability === 'function') updateLocalAvailability(); } catch(e) {}
 
-					// CB01 toggle gating (richiede MFP attivo e credenziali come AnimeUnity)
+					// CB01 toggle gating (richiede MFP attivo, password opzionale)
+					var urlFilled = mfpUrlInput && mfpUrlInput.value.trim() !== '';
+					var canEnableWithUrl = on && urlFilled;
 					if (cb01El){
 						if (!on) { // Master OFF
 							if (storedCb01State === null) storedCb01State = cb01El.checked;
@@ -598,16 +639,36 @@ function landingTemplate(manifest: any) {
 							if (cb01Row) cb01Row.classList.add('dimmed');
 						} else { // Master ON
 							if (cb01Row) cb01Row.classList.remove('dimmed');
-							cb01El.disabled = !canEnableChildren;
-							if (canEnableChildren) {
-								if (noPreset && !cb01El.checked) { cb01El.checked = true; }
-								else if (storedCb01State !== null) { cb01El.checked = storedCb01State || true; storedCb01State = null; }
+							cb01El.disabled = !canEnableWithUrl;
+							if (canEnableWithUrl) {
+								// Rimossa attivazione automatica: lascia lo stato scelto dall'utente
+								if (storedCb01State !== null) { cb01El.checked = storedCb01State; storedCb01State = null; }
 							} else {
 								if (storedCb01State === null) storedCb01State = cb01El.checked;
 								cb01El.checked = false;
 							}
 						}
 						if (cb01Row) setRowState(cb01Row);
+					}
+					// ToonItalia toggle gating (richiede MFP attivo, password opzionale)
+					if (toonitaliaEl){
+						if (!on) { // Master OFF
+							if (storedToonitaliaState === null) storedToonitaliaState = toonitaliaEl.checked;
+							toonitaliaEl.checked = false;
+							toonitaliaEl.disabled = true;
+							if (toonitaliaRow) toonitaliaRow.classList.add('dimmed');
+						} else { // Master ON
+							if (toonitaliaRow) toonitaliaRow.classList.remove('dimmed');
+							toonitaliaEl.disabled = !canEnableWithUrl;
+							if (canEnableWithUrl) {
+								// Ripristina stato precedente se disponibile
+								if (storedToonitaliaState !== null) { toonitaliaEl.checked = storedToonitaliaState; storedToonitaliaState = null; }
+							} else {
+								if (storedToonitaliaState === null) storedToonitaliaState = toonitaliaEl.checked;
+								toonitaliaEl.checked = false;
+							}
+						}
+						if (toonitaliaRow) setRowState(toonitaliaRow);
 					}
 				}
 				if (mfpMaster){ mfpMaster.addEventListener('change', function(){ syncMfp(); updateLink(); }); syncMfp(); }
@@ -629,7 +690,7 @@ function landingTemplate(manifest: any) {
 							sub.style.background = 'rgba(20,15,35,0.55)';
 							sub.innerHTML = ''
 							+ '<div style="text-align:center; font-size:0.95rem; letter-spacing:0.05em; margin:0 0 10px 0; color:#c9b3ff; font-weight:700;">Modalità VixSrc</div>'
-							+ '<div id="vixsrcDefaultMsg" style="text-align:center; font-size:0.85rem; margin:0 0 14px 0; opacity:0.85; line-height:1.3;">Nessuna selezione = Default (Proxy se MFP presente, altrimenti Direct)</div>'
+							+ '<div id="vixsrcDefaultMsg" style="text-align:center; font-size:0.85rem; margin:0 0 14px 0; opacity:0.85; line-height:1.3;">Nessuna selezione = Default</div>'
 							+ '<div style="display:flex; gap:12px; justify-content:center; align-items:center; flex-wrap:wrap;">'
 								+ '<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer; font-weight:600; padding:5px 10px; background:#2a1d44; border:1px solid #4d2d66; border-radius:10px;">'
 									+ '<input type="checkbox" id="vixDirectToggle" data-config-key="vixDirect" style="transform:scale(1.1);" />'
@@ -639,32 +700,39 @@ function landingTemplate(manifest: any) {
 									+ '<input type="checkbox" id="vixDirectFhdToggle" data-config-key="vixDirectFhd" style="transform:scale(1.1);" />'
 									+ '<span>Direct FHD</span>'
 								+ '</label>'
-								+ '<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer; font-weight:600; padding:5px 10px; background:#2a1d44; border:1px solid #4d2d66; border-radius:10px;">'
-									+ '<input type="checkbox" id="vixProxyToggle" data-config-key="vixProxy" style="transform:scale(1.1);" />'
-									+ '<span>Proxy</span>'
-								+ '</label>'
-								+ '<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer; font-weight:600; padding:5px 10px; background:#2a1d44; border:1px solid #4d2d66; border-radius:10px;">'
-									+ '<input type="checkbox" id="vixProxyFhdToggle" data-config-key="vixProxyFhd" style="transform:scale(1.1);" />'
-									+ '<span>Proxy FHD</span>'
-								+ '</label>'
+								// === PROXY OPTIONS (COMMENTATI - Decommentare per riabilitare MFP) ===
+								// + '<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer; font-weight:600; padding:5px 10px; background:#2a1d44; border:1px solid #4d2d66; border-radius:10px;">'
+								// 	+ '<input type="checkbox" id="vixProxyToggle" data-config-key="vixProxy" style="transform:scale(1.1);" />'
+								// 	+ '<span>Proxy</span>'
+								// + '</label>'
+								// + '<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer; font-weight:600; padding:5px 10px; background:#2a1d44; border:1px solid #4d2d66; border-radius:10px;">'
+								// 	+ '<input type="checkbox" id="vixProxyFhdToggle" data-config-key="vixProxyFhd" style="transform:scale(1.1);" />'
+								// 	+ '<span>Proxy FHD</span>'
+								// + '</label>'
+								// === FINE PROXY OPTIONS ===
 								+ '<span id="vixLegendTrigger" style="cursor:pointer; font-size:0.65rem; padding:6px 10px; border:1px solid #8c52ff; border-radius:10px; background:#2d1b47; font-weight:700; letter-spacing:0.05em; display:inline-flex; align-items:center; gap:6px;">📖 <span style="font-size:0.65rem;">HELP</span></span>'
 							+ '</div>'
 							+ '<div id="vixLegendPanel" style="display:none; margin-top:12px; font-size:0.65rem; line-height:1.4; background:rgba(10,10,25,0.55); padding:10px 12px; border:1px solid #3d2d60; border-radius:10px;">'
-								+ '<b>Default</b>: Se MFP attivo preferisce Proxy, altrimenti Direct.<br/>'
+								+ '<b>Default</b>: Comportamento automatico (Direct).<br/>'
 								+ '<b>Direct</b>: Solo link diretti senza wrapping MFP.<br/>'
 								+ '<b>Direct FHD</b>: Variante forzata qualità alta senza MFP.<br/>'
-								+ '<b>Proxy</b>: Variante proxy (richiede MFP).<br/>'
-								+ '<b>Proxy FHD</b>: Variante proxy qualità alta (richiede MFP, fallback se assente).<br/>'
-								+ 'Puoi selezionare qualsiasi combinazione; nessuna selezione = comportamento automatico.'
+								// + '<b>Proxy</b>: Variante proxy (richiede MFP).<br/>'  // COMMENTATO
+								// + '<b>Proxy FHD</b>: Variante proxy qualità alta (richiede MFP).<br/>'  // COMMENTATO
+								+ 'Puoi selezionare qualsiasi combinazione; nessuna selezione = comportamento automatico (Direct).'
 							+ '</div>';
 							vixsrcMainWrap.parentNode.insertBefore(sub, vixsrcMainWrap.nextSibling);
 						}
 						var vixDirectToggle = document.getElementById('vixDirectToggle');
 						var vixDirectFhdToggle = document.getElementById('vixDirectFhdToggle');
-						var vixProxyToggle = document.getElementById('vixProxyToggle');
-						var vixProxyFhdToggle = document.getElementById('vixProxyFhdToggle');
 						var legendBtn = document.getElementById('vixLegendTrigger');
 						var legendPanel = document.getElementById('vixLegendPanel');
+						// Restore state from hidden config fields (populated by manifest from URL)
+						try {
+							var hiddenDirect = document.getElementById('hidden_vixDirect');
+							var hiddenDirectFhd = document.getElementById('hidden_vixDirectFhd');
+							if (vixDirectToggle && hiddenDirect && hiddenDirect.type === 'checkbox') vixDirectToggle.checked = hiddenDirect.checked;
+							if (vixDirectFhdToggle && hiddenDirectFhd && hiddenDirectFhd.type === 'checkbox') vixDirectFhdToggle.checked = hiddenDirectFhd.checked;
+						} catch(e) { console.warn('VixSrc state restore failed:', e); }
 						if (legendBtn && legendPanel){ legendBtn.addEventListener('click', function(){ legendPanel.style.display = legendPanel.style.display==='none' ? 'block':'none'; }); }
 						function updateVixModeVisual(){
 							var info = document.getElementById('vixsrcDefaultMsg');
@@ -672,15 +740,23 @@ function landingTemplate(manifest: any) {
 							var active = [];
 							if (vixDirectToggle && vixDirectToggle.checked) active.push('Direct');
 							if (vixDirectFhdToggle && vixDirectFhdToggle.checked) active.push('Direct FHD');
-							if (vixProxyToggle && vixProxyToggle.checked) active.push('Proxy');
-							if (vixProxyFhdToggle && vixProxyFhdToggle.checked) active.push('Proxy FHD');
 							if (active.length === 0) {
-								info.textContent = 'Modalità: Default — Nessuna selezione = Proxy (se MFP) oppure Direct';
+								info.textContent = 'Nessuna selezione = Default';
 							} else {
 								info.textContent = 'Modalità: ' + active.join(', ');
 							}
 						}
-						[vixDirectToggle, vixDirectFhdToggle, vixProxyToggle, vixProxyFhdToggle].forEach(function(el){ if (el) el.addEventListener('change', function(){ updateVixModeVisual(); updateLink(); }); });
+						[vixDirectToggle, vixDirectFhdToggle].forEach(function(el){ 
+							if (el) el.addEventListener('change', function(){ 
+								updateVixModeVisual(); 
+								// Sync hidden inputs for config persistence
+								var hiddenDirect = document.getElementById('hidden_vixDirect');
+								var hiddenDirectFhd = document.getElementById('hidden_vixDirectFhd');
+								if (hiddenDirect && vixDirectToggle) hiddenDirect.checked = vixDirectToggle.checked;
+								if (hiddenDirectFhd && vixDirectFhdToggle) hiddenDirectFhd.checked = vixDirectFhdToggle.checked;
+								updateLink(); 
+							}); 
+						});
 						updateVixModeVisual();
 						if (vixsrcMain) {
 							vixsrcMain.addEventListener('change', function(){
@@ -731,16 +807,16 @@ function landingTemplate(manifest: any) {
 						liveWrapper.parentNode.insertBefore(liveSub, liveWrapper.nextSibling);
 					}
 				}
-				var tvtapToggleEl = (function(){ var n=document.getElementById('tvtapProxyEnabled'); return n? n.closest('.form-element'): null; })();
+				// var tvtapToggleEl = (function(){ var n=document.getElementById('tvtapProxyEnabled'); return n? n.closest('.form-element'): null; })(); // TVTAP RIMOSSO
 				var vavooToggleEl = (function(){ var n=document.getElementById('vavooNoMfpEnabled'); return n? n.closest('.form-element'): null; })();
 				function syncLive(){
 						var enabled = liveTvToggle ? liveTvToggle.checked : true; // slider ON means feature ON
 					if (liveSub) liveSub.style.display = enabled ? 'block':'none';
-					if (tvtapToggleEl) tvtapToggleEl.style.display = enabled ? 'block':'none';
+					// if (tvtapToggleEl) tvtapToggleEl.style.display = enabled ? 'block':'none'; // TVTAP RIMOSSO
 					if (vavooToggleEl) vavooToggleEl.style.display = enabled ? 'block':'none';
 					// Ensure they are inside subgroup container for visual grouping
 					if (enabled && liveSub){
-						if (tvtapToggleEl && tvtapToggleEl.parentElement !== liveSub) liveSub.appendChild(tvtapToggleEl);
+						// if (tvtapToggleEl && tvtapToggleEl.parentElement !== liveSub) liveSub.appendChild(tvtapToggleEl); // TVTAP RIMOSSO
 						if (vavooToggleEl && vavooToggleEl.parentElement !== liveSub) liveSub.appendChild(vavooToggleEl);
 					}
 				}
@@ -752,9 +828,12 @@ function landingTemplate(manifest: any) {
 						'disableVixsrc',         // VixSrc directly under Live TV block
 						'cb01Enabled',           // CB01
 						'guardahdEnabled',       // GuardaHD
-						'streamingwatchEnabled', // StreamingWatch
 						'guardaserieEnabled',    // GuardaSerie
+						'guardoserieEnabled',    // Guardoserie (Added)
+						'guardaflixEnabled',     // Guardaflix (Added)
 						'eurostreamingEnabled',  // Eurostreaming
+						'loonexEnabled',         // Loonex
+						'toonitaliaEnabled',     // ToonItalia
 						'animesaturnEnabled',    // Anime Saturn
 						'animeworldEnabled',     // Anime World
 						'animeunityEnabled'      // Anime Unity (moved LAST per richiesta)
@@ -782,9 +861,9 @@ function landingTemplate(manifest: any) {
 								liveWrapper2.parentNode.insertBefore(liveSub2, liveWrapper2.nextSibling);
 							}
 							// Reinserisci i toggle TvTap e Vavoo dentro il blocco se non presenti
-							var tvtapToggleEl2 = (function(){ var n=document.getElementById('tvtapProxyEnabled'); return n? n.closest('.form-element'): null; })();
+							// var tvtapToggleEl2 = (function(){ var n=document.getElementById('tvtapProxyEnabled'); return n? n.closest('.form-element'): null; })(); // TVTAP RIMOSSO
 							var vavooToggleEl2 = (function(){ var n=document.getElementById('vavooNoMfpEnabled'); return n? n.closest('.form-element'): null; })();
-							if (tvtapToggleEl2 && tvtapToggleEl2.parentElement !== liveSub2) liveSub2.appendChild(tvtapToggleEl2);
+							// if (tvtapToggleEl2 && tvtapToggleEl2.parentElement !== liveSub2) liveSub2.appendChild(tvtapToggleEl2); // TVTAP RIMOSSO
 							if (vavooToggleEl2 && vavooToggleEl2.parentElement !== liveSub2) liveSub2.appendChild(vavooToggleEl2);
 						}
 					} catch(e) { console.warn('LiveTV block reposition after reorder failed', e); }
@@ -876,7 +955,7 @@ function landingTemplate(manifest: any) {
 		} catch (e) { console.warn(e); }
 	`;
 
-	const resolvedAddonBaseEsc = (manifest.__resolvedAddonBase || '').replace(/`/g, '\\`').replace(/\$/g,'$$');
+	const resolvedAddonBaseEsc = (manifest.__resolvedAddonBase || '').replace(/`/g, '\\`').replace(/\$/g, '$$');
 	return `
 	<!DOCTYPE html>
 	<html style="background-image: url(${background});">

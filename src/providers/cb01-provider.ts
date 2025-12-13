@@ -3,7 +3,7 @@ thanks to @urlomythus for the code https://github.com/UrloMythus/MammaMia/blob/m
  * Replica la logica essenziale di cb01.py limitandosi a:
  *  - Ricerca film: https://cb01net.lol/?s=<query>
  *  - Ricerca serie: https://cb01net.lol/serietv/?s=<query>
- *  - Film: usa iframen2 (Streaming HD) se presente, altrimenti iframen1
+ *  - Film: usa iframen2 (Streaming HD) se presente, altrimenti iframen1 
  *  - Serie: blocco STAGIONE X e match episodio -> prima occorrenza mixdrop/stayonline
  *  - Bypass stayonline (POST ajax) -> ottiene embed Mixdrop
  *  - Incapsula tramite MediaFlow extractor (redirect_stream=false) e ricostruisce link proxy /proxy/stream
@@ -52,7 +52,8 @@ export class Cb01Provider {
 
   async handleImdbRequest(imdbId:string, season:number|null, episode:number|null, isMovie:boolean){
     if(!this.config.enabled) return { streams: [] };
-    if(!this.config.mfpUrl || !this.config.mfpPassword) return { streams: [] };
+    // ✅ MODIFICATO: Permetti l'esecuzione anche se la password è vuota, purché ci sia l'URL
+    if(!this.config.mfpUrl) return { streams: [] };
     const key = `${imdbId}|${isMovie?'movie':'series'}|${season||''}|${episode||''}`;
     const c = this.cache.get(key); if(c && Date.now()-c.ts < this.TTL) return { streams:c.streams };
     try {
@@ -78,7 +79,9 @@ export class Cb01Provider {
 
   /**
    * Fetch with automatic proxy retry on IP block (403/400)
-   * Usa DLHD_PROXY se la richiesta diretta fallisce con 403
+   * 1. Attempt: Direct (no proxy)
+   * 2. Attempt: DLHD_PROXY (timeout 5s)
+   * 3. Attempt: PROXY (fallback se DLHD_PROXY fallisce)
    */
   private async fetch(url:string, referer?:string): Promise<string> {
     const headers = { 
@@ -89,23 +92,52 @@ export class Cb01Provider {
 
     // Attempt 1: Direct fetch (no proxy)
     try {
-      const res = await fetch(url, { headers });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      const res = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(timeoutId);
       if(!res.ok) throw new Error('http '+res.status);
       return await res.text();
     } catch (error: any) {
       const status = error.message?.match(/http (\d+)/)?.[1];
+      const isTimeout = error.name === 'AbortError';
       
-      // Only retry with proxy if IP is blocked (403/400)
-      if (status !== '403' && status !== '400') {
+      // Retry if blocked (403/400) or timeout
+      if (status !== '403' && status !== '400' && !isTimeout) {
         throw error;
       }
       
-      log('IP blocked ('+status+'), trying with DLHD_PROXY...');
+      log(`Direct fetch failed (${isTimeout ? 'timeout' : status}), trying proxies...`);
     }
 
-    // Attempt 2: Try with DLHD_PROXY (if available)
+    // Attempt 2: Try with PROXY (fallback)
+    if (process.env.PROXY) {
+      try {
+        log('Trying PROXY (timeout 10s)...');
+        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+        const proxyAgent = new HttpsProxyAgent(process.env.PROXY, {
+          rejectUnauthorized: false
+        });
+        
+        const response = await axios.get(url, {
+          headers,
+          httpsAgent: proxyAgent,
+          proxy: false,
+          timeout: 10000  // 10 secondi
+        });
+        
+        log('✅ PROXY works for', url);
+        return response.data;
+      } catch (proxyError: any) {
+        warn('PROXY failed:', proxyError.message);
+        // Continue to DLHD_PROXY fallback
+      }
+    }
+
+    // Attempt 3: Try with DLHD_PROXY (timeout 4s)
     if (process.env.DLHD_PROXY) {
       try {
+        log('Trying DLHD_PROXY (timeout 4s)...');
         const httpsAgent = new https.Agent({ rejectUnauthorized: false });
         const proxyAgent = new HttpsProxyAgent(process.env.DLHD_PROXY, {
           rejectUnauthorized: false
@@ -115,19 +147,18 @@ export class Cb01Provider {
           headers,
           httpsAgent: proxyAgent,
           proxy: false,
-          timeout: 15000
+          timeout: 4000  // 4 secondi
         });
         
         log('✅ DLHD_PROXY works for', url);
         return response.data;
       } catch (proxyError: any) {
         warn('DLHD_PROXY failed:', proxyError.message);
-        throw proxyError;
       }
     }
 
-    // No proxy available
-    throw new Error('IP blocked and no DLHD_PROXY available');
+    // No proxy available or all failed
+    throw new Error('IP blocked and no working proxy available');
   }
   private async ensureDomain(){
     const now = Date.now();
@@ -356,7 +387,7 @@ export class Cb01Provider {
   }
 
   private async wrapMediaFlow(mixdropEmbed:string, pageHtml:string, ep?:{season:number;episode:number}, metaOverride?: {file:string|null; size:string|null}):Promise<StreamForStremio|null>{
-  const { mfpUrl, mfpPassword } = this.config; if(!mfpUrl || !mfpPassword) return null;
+  const { mfpUrl, mfpPassword } = this.config; if(!mfpUrl) return null;
   // Normalizza base URL mediaflow evitando doppio slash
   const mfpBase = mfpUrl.replace(/\/+$/, '');
     const originalEmbed = mixdropEmbed.trim();
@@ -370,7 +401,8 @@ export class Cb01Provider {
       log('mixdrop embed no id pattern, using original', { original: originalEmbed });
     }
     const encodedD = encodeURIComponent(dUrl);
-  const extractor = `${mfpBase}/extractor/video?host=Mixdrop&api_password=${encodeURIComponent(mfpPassword)}&d=${encodedD}&redirect_stream=false`;
+  const passwordParamCb01 = mfpPassword ? `&api_password=${encodeURIComponent(mfpPassword)}` : '';
+  const extractor = `${mfpBase}/extractor/video?host=Mixdrop${passwordParamCb01}&d=${encodedD}&redirect_stream=false`;
     log('extractor single call', { dUrl, encodedD, extractor });
     let data:any = null;
     try {
@@ -392,7 +424,8 @@ export class Cb01Provider {
     const headers = data.request_headers || {};
     const ua = headers['user-agent'] || headers['User-Agent'] || this.userAgent;
     const ref = headers['referer'] || headers['Referer'] || 'https://mixdrop.ps/';
-  const finalBase = `${mfpBase}/proxy/stream?api_password=${encodeURIComponent(mfpPassword)}&d=${encodeURIComponent(dest)}&h_user-agent=${encodeURIComponent(ua)}&h_referer=${encodeURIComponent(ref)}`;
+  const passwordParam = mfpPassword ? `api_password=${encodeURIComponent(mfpPassword)}&` : '';
+  const finalBase = `${mfpBase}/proxy/stream?${passwordParam}d=${encodeURIComponent(dest)}&h_user-agent=${encodeURIComponent(ua)}&h_referer=${encodeURIComponent(ref)}`;
   const meta = metaOverride || this.extractStayonlineMeta(pageHtml) || { file:null, size: undefined };
   // Nuovo formato richiesto:
   // Linea 1: Nome completo file (con estensione) + [ITA]

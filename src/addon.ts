@@ -43,6 +43,7 @@ import { startMpdxScheduler, updateMpdxChannels } from './utils/mpdxUpdater';
 import { startZEventiScheduler, updateZEventiChannels } from './utils/zEventiUpdater';
 import { getGuardoserieStreams } from './providers/guardoserie';
 import { getGuardaflixStreams } from './providers/guardaflix';
+import { getTrailerStreams, isTrailerProviderAvailable } from './providers/trailerProvider';
 
 // ================= TYPES & INTERFACES =================
 interface AddonConfig {
@@ -61,6 +62,7 @@ interface AddonConfig {
     loonexEnabled?: boolean;
     toonitaliaEnabled?: boolean;
     disableLiveTv?: boolean;
+    trailerEnabled?: boolean;
     disableVixsrc?: boolean;
     tvtapProxyEnabled?: boolean;
     vavooNoMfpEnabled?: boolean;
@@ -598,7 +600,7 @@ function isCfDlhdProxy(u: string): boolean { return extractDlhdIdFromCf(u) !== n
 // ================= MANIFEST BASE (restored) =================
 const baseManifest: Manifest = {
     id: "org.stremio.vixcloud",
-    version: "9.4.23",
+    version: "9.6.23",
     name: "StreamViX | Elfhosted",
     description: "StreamViX addon con VixSRC, Guardaserie, Altadefinizione, AnimeUnity, AnimeSaturn, AnimeWorld, Eurostreaming, TV ed Eventi Live",
     background: "https://raw.githubusercontent.com/qwertyuiop8899/StreamViX/refs/heads/main/public/backround.png",
@@ -682,6 +684,7 @@ const baseManifest: Manifest = {
         { key: "vixProxy", title: "VixSrc Proxy mode", type: "checkbox" },
         { key: "vixProxyFhd", title: "VixSrc Proxy FHD mode", type: "checkbox" },
         { key: "disableLiveTv", title: "Live TV 📺 [Molti canali hanno bisogno di MFP]", type: "checkbox", default: false },
+        { key: "trailerEnabled", title: "🎬▶️ Trailer", type: "checkbox", default: true },
         { key: "animeunityEnabled", title: "Enable AnimeUnity", type: "checkbox" },
         { key: "animeunityAuto", title: "AnimeUnity AUTO mode", type: "checkbox" },
         { key: "animeunityFhd", title: "AnimeUnity FHD mode", type: "checkbox" },
@@ -720,6 +723,7 @@ function loadCustomConfig(): Manifest {
                 version: customConfig.addonVersion || baseManifest.version,
                 logo: customConfig.addonLogo || baseManifest.logo,
                 icon: customConfig.addonLogo || baseManifest.icon,
+                favicon: customConfig.addonFavicon || customConfig.addonLogo || baseManifest.logo,
                 background: baseManifest.background
             };
         }
@@ -1478,7 +1482,10 @@ function createBuilder(initialConfig: AddonConfig = {}) {
             if (initialConfig && (initialConfig as any).disableLiveTv) {
                 const filtered = { ...manifest } as Manifest;
                 const cats = Array.isArray(filtered.catalogs) ? filtered.catalogs.slice() : [];
-                filtered.catalogs = cats.filter((c: any) => !(c && (c as any).id === 'streamvix_tv'));
+                // Rimuovi ENTRAMBI i cataloghi TV (streamvix_tv + streamvix_live) quando disabilitato
+                filtered.catalogs = cats.filter((c: any) =>
+                    !(c && ((c as any).id === 'streamvix_tv' || (c as any).id === 'streamvix_live'))
+                );
                 return filtered;
             }
         } catch { }
@@ -2153,7 +2160,14 @@ function createBuilder(initialConfig: AddonConfig = {}) {
             streams: Stream[];
         }> => {
             try {
-                console.log(`🔍 Stream request: ${type}/${id}`);
+                // Normalize type: handle Italian endpoint names (film->movie, serie->series)
+                let normalizedType = type;
+                if (type === 'film') normalizedType = 'movie';
+                if (type === 'serie') normalizedType = 'series';
+                // Use normalized type for all downstream logic
+                type = normalizedType;
+
+                console.log(`🔍 Stream request: ${normalizedType}/${id}`);
 
                 // FIX DEFINITIVO: L'MFP viene preso dalla config dell'utente (requestConfig)
                 // Se l'utente non ha MFP configurato, usa env vars come fallback (per installazioni locali)
@@ -4299,6 +4313,26 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 // === LOGICA ANIME/FILM (originale) ===
                 // Per tutto il resto, usa solo mediaFlowProxyUrl/mediaFlowProxyPassword
                 // Gestione AnimeUnity per ID Kitsu o MAL con fallback variabile ambiente
+
+                // API Mode detection: when config has NO explicit provider settings, assume direct API call
+                // Direct API call = curl to /stream/movie/xxx.json without any config
+                // User with config (even without MFP) should NOT trigger API mode
+                const hasAnyProviderSetting = (() => {
+                    const cfg = config as any;
+                    // Check if user has explicitly set any provider or flag
+                    const providerKeys = [
+                        'trailerEnabled', 'disableVixsrc', 'vixDirect', 'vixDirectFhd', 'vixProxy', 'vixProxyFhd',
+                        'guardahdEnabled', 'guardaserieEnabled', 'guardoserieEnabled', 'guardaflixEnabled',
+                        'eurostreamingEnabled', 'loonexEnabled', 'toonitaliaEnabled', 'cb01Enabled',
+                        'animesaturnEnabled', 'animeworldEnabled', 'animeunityEnabled'
+                    ];
+                    return providerKeys.some(k => cfg[k] !== undefined);
+                })();
+                const isDirectAPICall = !hasAnyProviderSetting;
+                if (isDirectAPICall) {
+                    console.log('[API Mode] Direct API call detected (no config) - enabling all providers (non-FHD/direct only)');
+                }
+
                 // Provider flags: default ON unless explicitly disabled
                 const envFlag = (name: string) => {
                     const v = process.env[name];
@@ -4306,21 +4340,22 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     return v.toLowerCase() === 'true';
                 };
                 // New rule: enabled only when checkbox true (or env forces true)
-                const animeUnityEnabled = envFlag('ANIMEUNITY_ENABLED') ?? (config.animeunityEnabled === true);
-                const animeSaturnEnabled = envFlag('ANIMESATURN_ENABLED') ?? (config.animesaturnEnabled === true);
-                const animeWorldEnabled = envFlag('ANIMEWORLD_ENABLED') ?? (config.animeworldEnabled === true);
-                const guardaSerieEnabled = envFlag('GUARDASERIE_ENABLED') ?? (config.guardaserieEnabled === true);
-                const guardaHdEnabled = envFlag('GUARDAHD_ENABLED') ?? (config.guardahdEnabled === true);
-                const cb01Enabled = envFlag('CB01_ENABLED') ?? (config as any).cb01Enabled === true;
+                // API Mode: enable by default for all providers
+                const animeUnityEnabled = envFlag('ANIMEUNITY_ENABLED') ?? (isDirectAPICall || config.animeunityEnabled === true);
+                const animeSaturnEnabled = envFlag('ANIMESATURN_ENABLED') ?? (isDirectAPICall || config.animesaturnEnabled === true);
+                const animeWorldEnabled = envFlag('ANIMEWORLD_ENABLED') ?? (isDirectAPICall || config.animeworldEnabled === true);
+                const guardaSerieEnabled = envFlag('GUARDASERIE_ENABLED') ?? (isDirectAPICall || config.guardaserieEnabled === true);
+                const guardaHdEnabled = envFlag('GUARDAHD_ENABLED') ?? (isDirectAPICall || config.guardahdEnabled === true);
+                const cb01Enabled = envFlag('CB01_ENABLED') ?? (isDirectAPICall || (config as any).cb01Enabled === true);
                 // Eurostreaming: default ON unless explicitly disabled (config false) or env sets true/false
                 const eurostreamingEnv = envFlag('EUROSTREAMING_ENABLED');
                 const eurostreamingEnabled = eurostreamingEnv !== undefined
                     ? eurostreamingEnv
-                    : (config.eurostreamingEnabled !== false); // default true
-                // Loonex: default OFF (nuovo provider)
-                const loonexEnabled = envFlag('LOONEX_ENABLED') ?? (config.loonexEnabled === true);
-                // ToonItalia: default OFF (nuovo provider)
-                const toonitaliaEnabled = envFlag('TOONITALIA_ENABLED') ?? (config.toonitaliaEnabled === true);
+                    : (isDirectAPICall || config.eurostreamingEnabled !== false); // default true
+                // Loonex: default OFF (nuovo provider) - API mode enables it
+                const loonexEnabled = envFlag('LOONEX_ENABLED') ?? (isDirectAPICall || config.loonexEnabled === true);
+                // ToonItalia: default OFF (nuovo provider) - API mode enables it
+                const toonitaliaEnabled = envFlag('TOONITALIA_ENABLED') ?? (isDirectAPICall || config.toonitaliaEnabled === true);
                 console.log(`[ToonItalia] Flag status: ${toonitaliaEnabled} (env: ${envFlag('TOONITALIA_ENABLED')}, config: ${config.toonitaliaEnabled})`);
                 // Nuovo flag per inserire VixSrc nell'esecuzione parallela (prima era fuori e poteva saltare)
                 // FIX: usa config dell'utente, NON configCache globale
@@ -4328,15 +4363,18 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     try {
                         if ((config as any).disableVixsrc === true) return false;
                     } catch { }
-                    return true; // default ON
+                    return true; // default ON (also in API mode)
                 })();
                 let vixsrcScheduled = false; // per evitare doppia esecuzione nel blocco sequenziale più sotto
 
-                const guardoserieEnabled = (config.guardoserieEnabled === true);
-                const guardaflixEnabled = (config.guardaflixEnabled === true);
+                // API Mode: enable Guardoserie and Guardaflix by default
+                const guardoserieEnabled = isDirectAPICall || (config.guardoserieEnabled === true);
+                const guardaflixEnabled = isDirectAPICall || (config.guardaflixEnabled === true);
 
                 // Gestione parallela AnimeUnity / AnimeSaturn / AnimeWorld + Loonex
-                if ((id.startsWith('kitsu:') || id.startsWith('mal:') || id.startsWith('tt') || id.startsWith('tmdb:')) && (animeUnityEnabled || animeSaturnEnabled || animeWorldEnabled || guardaSerieEnabled || guardoserieEnabled || guardaflixEnabled || guardaHdEnabled || eurostreamingEnabled || loonexEnabled || toonitaliaEnabled || cb01Enabled || vixsrcEnabled)) {
+                // IMPORTANTE: includere trailerEnabled per permettere trailer standalone
+                const trailerEnabled = (config as any).trailerEnabled !== false;
+                if ((id.startsWith('kitsu:') || id.startsWith('mal:') || id.startsWith('tt') || id.startsWith('tmdb:')) && (trailerEnabled || animeUnityEnabled || animeSaturnEnabled || animeWorldEnabled || guardaSerieEnabled || guardoserieEnabled || guardaflixEnabled || guardaHdEnabled || eurostreamingEnabled || loonexEnabled || toonitaliaEnabled || cb01Enabled || vixsrcEnabled)) {
                     const animeUnityConfig: AnimeUnityConfig = {
                         enabled: animeUnityEnabled,
                         mfpUrl: mfpUrl,
@@ -4366,13 +4404,29 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     if (id.startsWith('tt') || id.startsWith('tmdb:')) {
                         // Esempio: tt1234567:1:2 oppure tmdb:12345:1:2
                         const parts = id.split(':');
-                        if (parts.length === 1) {
-                            isMovie = true;
-                        } else if (parts.length === 2) {
-                            episodeNumber = parseInt(parts[1]);
-                        } else if (parts.length === 3) {
-                            seasonNumber = parseInt(parts[1]);
-                            episodeNumber = parseInt(parts[2]);
+                        // IMDB: tt12345 (1 part) = movie, tt12345:S:E (3 parts) = series
+                        // TMDB: tmdb:12345 (2 parts) = movie, tmdb:12345:S:E (4 parts) = series
+                        if (id.startsWith('tt')) {
+                            if (parts.length === 1) {
+                                isMovie = true;
+                            } else if (parts.length === 2) {
+                                episodeNumber = parseInt(parts[1]);
+                            } else if (parts.length === 3) {
+                                seasonNumber = parseInt(parts[1]);
+                                episodeNumber = parseInt(parts[2]);
+                            }
+                        } else if (id.startsWith('tmdb:')) {
+                            if (parts.length === 2) {
+                                // tmdb:12345 = movie
+                                isMovie = true;
+                            } else if (parts.length === 3) {
+                                // tmdb:12345:E
+                                episodeNumber = parseInt(parts[2]);
+                            } else if (parts.length === 4) {
+                                // tmdb:12345:S:E
+                                seasonNumber = parseInt(parts[2]);
+                                episodeNumber = parseInt(parts[3]);
+                            }
                         }
                     }
                     const providerPromises: Promise<void>[] = [];
@@ -4642,11 +4696,11 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                                 mfpPsw: mfpPsw,
                                 // vixLocal flag removed (property not in config)
                                 vixDual: !!(config as any)?.vixDual,
-                                // Propaga nuove checkbox per bridge interno
-                                vixDirect: (config as any)?.vixDirect === true,
-                                vixDirectFhd: (config as any)?.vixDirectFhd === true,
-                                vixProxy: (config as any)?.vixProxy === true,
-                                vixProxyFhd: (config as any)?.vixProxyFhd === true,
+                                // API Mode: force vixDirect=true, disable FHD (no proxy needed)
+                                vixDirect: isDirectAPICall ? true : ((config as any)?.vixDirect === true),
+                                vixDirectFhd: isDirectAPICall ? false : ((config as any)?.vixDirectFhd === true),
+                                vixProxy: isDirectAPICall ? false : ((config as any)?.vixProxy === true),
+                                vixProxyFhd: isDirectAPICall ? false : ((config as any)?.vixProxyFhd === true),
                                 addonBase: (config as any)?.addonBase || (() => {
                                     try {
                                         const proto = (process.env.EXTERNAL_PROTOCOL || 'https');
@@ -4683,7 +4737,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
 
 
                     // === GUARDOSERIE PROVIDER (Movie/Series) ===
-                    if (((config as any).guardoserieEnabled) && ((type as string) === 'movie' || (type as string) === 'series')) {
+                    if (guardoserieEnabled && ((type as string) === 'movie' || (type as string) === 'series')) {
                         providerPromises.push(runProvider('Guardoserie', true, async () => {
                             try {
                                 const gsStreams = await getGuardoserieStreams(type, id, (config as any).tmdbApiKey, mfpUrl, mfpPsw);
@@ -4699,7 +4753,7 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                     }
 
                     // === GUARDAFLIX PROVIDER (Movie Only) ===
-                    if (((config as any).guardaflixEnabled) && ((type as string) === 'movie')) {
+                    if (guardaflixEnabled && ((type as string) === 'movie')) {
                         providerPromises.push(runProvider('Guardaflix', true, async () => {
                             try {
                                 const gfStreams = await getGuardaflixStreams(type, id, (config as any).tmdbApiKey, mfpUrl, mfpPsw);
@@ -4895,44 +4949,46 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                 }
 
                 if (!vixsrcScheduled && !id.startsWith('kitsu:') && !id.startsWith('mal:') && !id.startsWith('tv:')) {
-                    // FIX: usa config dell'utente, NON configCache globale
-                    try { if ((config as any).disableVixsrc === true) return { streams: allStreams }; } catch { }
-                    const finalConfig: ExtractorConfig = {
-                        tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
-                        mfpUrl: mfpUrl,
-                        mfpPsw: mfpPsw,
-                        // vixLocal flag removed
-                        vixDual: !!(config as any)?.vixDual,
-                        vixDirect: (config as any)?.vixDirect === true,
-                        vixDirectFhd: (config as any)?.vixDirectFhd === true,
-                        vixProxy: (config as any)?.vixProxy === true,
-                        vixProxyFhd: (config as any)?.vixProxyFhd === true,
-                        addonBase: (config as any)?.addonBase || ''
-                    };
-                    const res: VixCloudStreamInfo[] | null = await getStreamContent(id, type, finalConfig);
-                    if (res) {
-                        for (const st of res) {
-                            if (!st.streamUrl) continue;
-                            let rawBase = (st.name || '').replace(/\s*•\s*\[ITA\]$/i, '').replace(/\s*\[ITA\]$/i, '').trim();
-                            if (/^(Synthetic FHD|Proxy FHD)$/i.test(rawBase) && (st as any).originalName) {
-                                rawBase = (st as any).originalName;
+                    // FIX: se disableVixsrc è true, salta solo VixSrc ma non fare early return (blocca trailer!)
+                    const skipVixsrc = (config as any).disableVixsrc === true;
+                    if (!skipVixsrc) {
+                        const finalConfig: ExtractorConfig = {
+                            tmdbApiKey: config.tmdbApiKey || process.env.TMDB_API_KEY || '40a9faa1f6741afb2c0c40238d85f8d0',
+                            mfpUrl: mfpUrl,
+                            mfpPsw: mfpPsw,
+                            // vixLocal flag removed
+                            vixDual: !!(config as any)?.vixDual,
+                            vixDirect: (config as any)?.vixDirect === true,
+                            vixDirectFhd: (config as any)?.vixDirectFhd === true,
+                            vixProxy: (config as any)?.vixProxy === true,
+                            vixProxyFhd: (config as any)?.vixProxyFhd === true,
+                            addonBase: (config as any)?.addonBase || ''
+                        };
+                        const res: VixCloudStreamInfo[] | null = await getStreamContent(id, type, finalConfig);
+                        if (res) {
+                            for (const st of res) {
+                                if (!st.streamUrl) continue;
+                                let rawBase = (st.name || '').replace(/\s*•\s*\[ITA\]$/i, '').replace(/\s*\[ITA\]$/i, '').trim();
+                                if (/^(Synthetic FHD|Proxy FHD)$/i.test(rawBase) && (st as any).originalName) {
+                                    rawBase = (st as any).originalName;
+                                }
+                                let unified = buildUnifiedStreamName({
+                                    baseTitle: rawBase || 'VixSrc',
+                                    isSub: /\bsub\b|\[sub\]/i.test(st.name || ''),
+                                    sizeBytes: undefined, // non includere size per coerenza esempio
+                                    playerName: undefined,
+                                    proxyOn: st.source === 'proxy',
+                                    provider: 'vixsrc',
+                                    isFhdOrDual: !!st.isSyntheticFhd
+                                });
+                                const parts = unified.split('\n');
+                                if (parts.length && /^🤌\s/.test(parts[parts.length - 1])) parts.pop();
+                                unified = parts.join('\n');
+                                allStreams.push({ title: unified, name: providerLabel('vixsrc', !!st.isSyntheticFhd), url: st.streamUrl, behaviorHints: { notWebReady: true, headers: { Referer: st.referer } } as any, originalName: (st as any).originalName });
                             }
-                            let unified = buildUnifiedStreamName({
-                                baseTitle: rawBase || 'VixSrc',
-                                isSub: /\bsub\b|\[sub\]/i.test(st.name || ''),
-                                sizeBytes: undefined, // non includere size per coerenza esempio
-                                playerName: undefined,
-                                proxyOn: st.source === 'proxy',
-                                provider: 'vixsrc',
-                                isFhdOrDual: !!st.isSyntheticFhd
-                            });
-                            const parts = unified.split('\n');
-                            if (parts.length && /^🤌\s/.test(parts[parts.length - 1])) parts.pop();
-                            unified = parts.join('\n');
-                            allStreams.push({ title: unified, name: providerLabel('vixsrc', !!st.isSyntheticFhd), url: st.streamUrl, behaviorHints: { notWebReady: true, headers: { Referer: st.referer } } as any, originalName: (st as any).originalName });
                         }
-                    }
-                }
+                    } // close if (!skipVixsrc)
+                } // close if (!vixsrcScheduled && ...)
                 // === ORDINAMENTO STREAM TV STATICI PER PRIORITÀ ===
                 // Applica ordinamento priorità per canali TV (prima di ordinamento provider)
                 try {
@@ -4962,6 +5018,36 @@ function createBuilder(initialConfig: AddonConfig = {}) {
                         allStreams.sort((a, b) => rank((a.name || a.title || '').toString()) - rank((b.name || b.title || '').toString()));
                     }
                 } catch { }
+
+                // === TRAILER ITALIANO (TMDB) - Prima posizione ===
+                // Aggiungi trailer SOLO per movie/series (non TV live) se abilitato
+                // trailerEnabled already defined above (default: true if undefined)
+                if (type !== 'tv' && trailerEnabled && isTrailerProviderAvailable()) {
+                    try {
+                        // Estrai imdbId, season, episode dall'id (formato: tt123456:season:episode)
+                        const idParts = id.split(':');
+                        const imdbId = idParts[0];
+                        const season = idParts.length > 1 ? parseInt(idParts[1], 10) : undefined;
+                        const episode = idParts.length > 2 ? parseInt(idParts[2], 10) : undefined;
+
+                        // Per le serie: mostra trailer SOLO per episodi 1 e 2 di ogni stagione
+                        if (type === 'series' && episode !== undefined && episode > 2) {
+                            // Skip trailer for episodes 3+
+                        } else if (imdbId.startsWith('tt')) {
+                            const contentType = type === 'series' ? 'series' : 'movie';
+                            // Pass undefined for contentName (fallback format), season for series-specific trailer
+                            const trailerStreams = await getTrailerStreams(contentType, imdbId, undefined, season);
+                            if (trailerStreams && trailerStreams.length > 0) {
+                                // Prependi trailer come primo stream
+                                allStreams.unshift(...trailerStreams as any);
+                                console.log(`🎬 Added ${trailerStreams.length} trailer(s) for ${imdbId}${season ? ` S${season}` : ''}`);
+                            }
+                        }
+                    } catch (trailerErr) {
+                        console.warn('[Trailer] Error fetching trailer:', (trailerErr as any)?.message || trailerErr);
+                    }
+                }
+
                 console.log(`✅ Total streams returned: ${allStreams.length}`);
                 return { streams: allStreams };
             } catch (error) {
@@ -5088,7 +5174,10 @@ app.get(['/manifest.json', '/:config/manifest.json', '/cfg/:config/manifest.json
         if (!Array.isArray((filtered as any).catalogs)) (filtered as any).catalogs = [];
         if (effectiveDisable) {
             const cats = Array.isArray(filtered.catalogs) ? filtered.catalogs.slice() : [];
-            filtered.catalogs = cats.filter((c: any) => !(c && (c as any).id === 'streamvix_tv'));
+            // Rimuovi ENTRAMBI i cataloghi TV (streamvix_tv + streamvix_live) quando disabilitato
+            filtered.catalogs = cats.filter((c: any) =>
+                !(c && ((c as any).id === 'streamvix_tv' || (c as any).id === 'streamvix_live'))
+            );
         }
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -5841,7 +5930,8 @@ app.get('/zeventi/update', async (req: Request, res: Response) => {
 
 // ================= MANUAL PURGE ENDPOINT =====================
 // Esegue la stessa logica delle 02:00: rimuove dal file gli eventi del giorno precedente
-app.get('/static/fupdate', async (req: Request, res: Response) => {
+// Alias: /tv/update per comodità
+app.get(['/static/fupdate', '/tv/update'], async (req: Request, res: Response) => {
     try {
         const htmlLog: string[] = [];
         htmlLog.push('<html><body style="font-family: sans-serif;">');
@@ -5906,6 +5996,35 @@ app.get('/static/fupdate', async (req: Request, res: Response) => {
             htmlLog.push(`<li>✅ <strong>Z-Eventi</strong>: ${c} channels updated (FORCED)</li>`);
         } catch (e: any) {
             htmlLog.push(`<li>❌ <strong>Z-Eventi</strong>: Error: ${e.message}</li>`);
+        }
+
+        // X-Eventi (runs Python script x_eventi.py -> writes to /tmp/x_eventi.json)
+        try {
+            const pythonBin = process.env.PYTHON_BIN || 'python3';
+            const scriptPath = path.join(__dirname, '..', 'x_eventi.py');
+            if (fs.existsSync(scriptPath)) {
+                const { execSync } = await import('child_process');
+                execSync(`${pythonBin} ${scriptPath}`, { timeout: 60000 });
+                htmlLog.push(`<li>✅ <strong>X-Eventi</strong>: Script executed (FORCED)</li>`);
+            } else {
+                htmlLog.push(`<li>⚠️ <strong>X-Eventi</strong>: Script not found (skipped)</li>`);
+            }
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>X-Eventi</strong>: Error: ${e.message}</li>`);
+        }
+
+        // Live/Update (runs Live.py -> dynamic events)
+        try {
+            // executeLiveScript is already defined in the addon
+            const execRes = await (async () => { try { return await (executeLiveScript as any)(); } catch { return undefined; } })();
+            const liveOk = execRes?.code === 0 || (execRes?.stdout && !execRes?.code);
+            if (liveOk) {
+                htmlLog.push(`<li>✅ <strong>Live (Dynamic Events)</strong>: Script executed (FORCED)</li>`);
+            } else {
+                htmlLog.push(`<li>⚠️ <strong>Live (Dynamic Events)</strong>: ${execRes?.stderr || 'Unknown result'}</li>`);
+            }
+        } catch (e: any) {
+            htmlLog.push(`<li>❌ <strong>Live (Dynamic Events)</strong>: Error: ${e.message}</li>`);
         }
 
         htmlLog.push('</ul>');

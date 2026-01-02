@@ -1,5 +1,117 @@
 # Changelog
 
+## [1.11.13](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.12...v1.11.13) (2025-12-29)
+
+
+### Bug Fixes
+
+* sk un+ ([bc8d62f](https://github.com/qwertyuiop8899/streamvix/commit/bc8d62f52c2be9cd6aba4f98829542944db25925))
+
+## [1.11.12](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.11...v1.11.12) (2025-12-24)
+
+
+### Bug Fixes
+
+* logo ([b45537c](https://github.com/qwertyuiop8899/streamvix/commit/b45537c7baecb766d7a1defc80f10e79447aca60))
+
+## [1.11.11](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.10...v1.11.11) (2025-12-24)
+
+
+### Bug Fixes
+
+* domains update ([a88cc1d](https://github.com/qwertyuiop8899/streamvix/commit/a88cc1d339170a8b023ba0a4362a62b9d03757f6))
+* logo ([74d6b56](https://github.com/qwertyuiop8899/streamvix/commit/74d6b56ef675c3d705fcd5daa881a6387bcea891))
+
+## [1.11.10](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.9...v1.11.10) (2025-12-18)
+
+
+### Bug Fixes
+
+* addon version ([096dd4a](https://github.com/qwertyuiop8899/streamvix/commit/096dd4ace562af6bb74e8f30f8acd1d9b3e78caf))
+
+## [1.11.9](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.8...v1.11.9) (2025-12-16)
+
+
+### Bug Fixes
+
+* only trailer and endpoint ([08bf680](https://github.com/qwertyuiop8899/streamvix/commit/08bf68032a8826d3133e45c14ab1693cfd317157))
+* vix tmdb ([b984040](https://github.com/qwertyuiop8899/streamvix/commit/b98404057332b2fe4c242eb464b19e3590ae46fd))
+
+## [1.11.8](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.7...v1.11.8) (2025-12-16)
+
+
+### Bug Fixes
+
+* guardoserie guardaflix domain script ([9cd02a1](https://github.com/qwertyuiop8899/streamvix/commit/9cd02a12c6cddcecd97d4258342c793e7aa0d406))
+
+## [1.11.7](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.6...v1.11.7) (2025-12-16)
+
+
+### Bug Fixes
+
+* gh endpoint ([16beb4e](https://github.com/qwertyuiop8899/streamvix/commit/16beb4e24b7714950d82e54259426dc4fe52e85f))
+* tmdb gh ([2e15679](https://github.com/qwertyuiop8899/streamvix/commit/2e15679be1461322e89d38f0d661296a8582e342))
+
+## [1.11.6](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.5...v1.11.6) (2025-12-16)
+
+
+### Bug Fixes
+
+* proxy cache ([16a2a35](https://github.com/qwertyuiop8899/streamvix/commit/16a2a35c84bcb6f96772f8c3fb456198c66ab6ff))
+
+## [1.11.5](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.4...v1.11.5) (2025-12-16)
+
+
+### Bug Fixes
+
+* trailer yt ([81db2c3](https://github.com/qwertyuiop8899/streamvix/commit/81db2c3b32046047875e09d1552166e3f7b84b88))
+* yt trailer ([a8ba962](https://github.com/qwertyuiop8899/streamvix/commit/a8ba9622cbe8ae661b92f130d48c72568cb71f4d))
+
+## [1.11.4](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.3...v1.11.4) (2025-12-16)
+
+
+### Bug Fixes
+
+* trailer ([6f8e8ad](https://github.com/qwertyuiop8899/streamvix/commit/6f8e8ad2936be225db698865c83a860490b21dcb))
+* trailer ([86989cb](https://github.com/qwertyuiop8899/streamvix/commit/86989cba97b860a21800b0e45e0b9c8c1f593878))
+
+## [1.11.3](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.2...v1.11.3) (2025-12-15)
+
+
+### Bug Fixes
+
+* endpoint ([0cf038d](https://github.com/qwertyuiop8899/streamvix/commit/0cf038d40a003b33566e4c115b336a20f77b342b))
+
+## [1.11.2](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.1...v1.11.2) (2025-12-15)
+
+
+### Bug Fixes
+
+* domains update ([32e255e](https://github.com/qwertyuiop8899/streamvix/commit/32e255e182294c12b2f14eafda5c1f7b47fd9810))
+* eurostreaming.py ([e2677c6](https://github.com/qwertyuiop8899/streamvix/commit/e2677c65afb6e4901b769eeb48cda7db9a41e955))
+
+## [1.11.1](https://github.com/qwertyuiop8899/streamvix/compare/v1.11.0...v1.11.1) (2025-12-15)
+
+
+### Bug Fixes
+
+* live ([54993dc](https://github.com/qwertyuiop8899/streamvix/commit/54993dcdb4e6a545d5dc9814eb7719bdd5ecea8c))
+* x name ([c722d75](https://github.com/qwertyuiop8899/streamvix/commit/c722d756b74f172caea5af70f2a2f9f15281e3cb))
+
+## [1.11.0](https://github.com/qwertyuiop8899/streamvix/compare/v1.10.58...v1.11.0) (2025-12-13)
+
+
+### Features
+
+* **normalize-au:** add "Nichijou - My Ordinary Life" ([4613893](https://github.com/qwertyuiop8899/streamvix/commit/4613893f17b73fd8ef1df54e18ef163a0e12aeaf))
+* **normalize-aw:** add "Nichijou - My Ordinary Life" ([ceca4ba](https://github.com/qwertyuiop8899/streamvix/commit/ceca4bac2fc5918679bd95467988b1aff69506c0))
+* **normalize:** add "Nichijou - My Ordinary Life" ([de176e1](https://github.com/qwertyuiop8899/streamvix/commit/de176e1b759fa1e23da0d05c6516996ca68aff26))
+
+
+### Bug Fixes
+
+* domains update ([ab7d416](https://github.com/qwertyuiop8899/streamvix/commit/ab7d41610f130f43bfb9c9d685e42074038935f6))
+
 ## [1.10.58](https://github.com/qwertyuiop8899/streamvix/compare/v1.10.57...v1.10.58) (2025-12-11)
 
 

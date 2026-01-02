@@ -284,6 +284,7 @@ button:active {
 function landingTemplate(manifest: any) {
 	const background = manifest.background || 'https://dl.strem.io/addon-background.jpg'
 	const logo = manifest.logo || 'https://dl.strem.io/addon-logo.png'
+	const favicon = manifest.favicon || logo
 	const contactHTML = manifest.contactEmail ?
 		`<div class="contact">
 			<p>Contact ${manifest.name} creator:</p>
@@ -329,6 +330,7 @@ function landingTemplate(manifest: any) {
 				const toggleMap: any = {
 					'disableVixsrc': { title: 'VixSrc 🍿', invert: true },
 					'disableLiveTv': { title: 'Live TV 📺 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Molti canali hanno bisogno di MFP)</span>', invert: true },
+					'trailerEnabled': { title: '🎬▶️ Trailer TMDB', invert: false },
 					'animeunityEnabled': { title: 'Anime Unity ⛩️ - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
 					'animesaturnEnabled': { title: 'Anime Saturn 🪐 - 🔓 🔒 <span style="font-size:0.65rem; opacity:0.75; font-weight:600;">(Alcuni flussi hanno bisogno di MFP)</span>', invert: false },
 					'animeworldEnabled': { title: 'Anime World 🌍 - 🔓', invert: false },
@@ -825,6 +827,7 @@ function landingTemplate(manifest: any) {
 				try {
 					var orderIds = [
 						'disableLiveTv',        // Live TV first
+						'trailerEnabled',       // Trailer TMDB right after Live TV
 						'disableVixsrc',         // VixSrc directly under Live TV block
 						'cb01Enabled',           // CB01
 						'guardahdEnabled',       // GuardaHD
@@ -967,7 +970,7 @@ function landingTemplate(manifest: any) {
 		<meta http-equiv="Expires" content="0" />
 		<title>${manifest.name} - Stremio Addon</title>
 		<style>${STYLESHEET}</style>
-		<link rel="shortcut icon" href="${logo}" type="image/x-icon">
+		<link rel="shortcut icon" href="${favicon}" type="image/x-icon">
 		<link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600,700&display=swap" rel="stylesheet">
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/purecss@2.1.0/build/pure-min.css" integrity="sha384-yHIFVG6ClnONEA5yB5DJXfW2/KC173DIQrYoZMEtBvGzmf0PKiGyNEqe9N6BNDBH" crossorigin="anonymous">
 	</head>
